@@ -15,6 +15,7 @@ namespace LENet
             while (!DispatchQueue.Empty)
             {
                 var peer = DispatchQueue.Begin.Remove().Value;
+                
                 peer.NeedsDispatch = false;
 
                 switch (peer.State)
@@ -257,11 +258,13 @@ namespace LENet
             currentPeer.PacketThrottleDeceleration = command.PacketThrottleDeceleration;
             currentPeer.MTU = Math.Clamp(command.MTU, MINIMUM_MTU, MAXIMUM_MTU);
 
-            if (OutgoingBandwidth == 0 && currentPeer.IncomingBandwidth == 0)
+            if (OutgoingBandwidth == 0
+                && currentPeer.IncomingBandwidth == 0)
             {
                 currentPeer.WindowSize = MAXIMUM_WINDOW_SIZE;
             }
-            else if (OutgoingBandwidth == 0 || currentPeer.IncomingBandwidth == 0)
+            else if (OutgoingBandwidth == 0 
+                || currentPeer.IncomingBandwidth == 0)
             {
                 currentPeer.WindowSize = (Math.Max(OutgoingBandwidth, currentPeer.IncomingBandwidth) / ENetPeer.WINDOW_SIZE_SCALE) * MINIMUM_WINDOW_SIZE;
             }
@@ -314,7 +317,7 @@ namespace LENet
                 return -1;
             }
 
-            if (buffer.BytesLeft < command.DataLength)
+            if (command.DataLength > buffer.BytesLeft)
             {
                 return -1;
             }
@@ -323,36 +326,6 @@ namespace LENet
             {
                 Data = buffer.ReadBytes(command.DataLength),
                 Flags = ENetPacketFlags.Reliable
-            };
-
-            if (peer.QueueIncomingCommand(command, packet, 0) == null)
-            {
-                return -1;
-            }
-
-            return 0;
-        }
-
-        private int HandleSendUnreliable(ENetPeer peer, ENetProtocol.Send.Unreliable command, ENetBuffer buffer)
-        {
-            if (command.ChannelID >= peer.ChannelCount)
-            {
-                return -1;
-            }
-
-            if (peer.State != ENetPeerState.CONNECTED && peer.State != ENetPeerState.DISCONNECT_LATER)
-            {
-                return -1;
-            }
-
-            if (buffer.BytesLeft < command.DataLength)
-            {
-                return -1;
-            }
-
-            var packet = new ENetPacket
-            {
-                Data = buffer.ReadBytes(command.DataLength)
             };
 
             if (peer.QueueIncomingCommand(command, packet, 0) == null)
@@ -376,7 +349,7 @@ namespace LENet
                 return -1;
             }
 
-            if (buffer.BytesLeft < command.DataLength)
+            if (command.DataLength > buffer.BytesLeft)
             {
                 return -1;
             }
@@ -399,9 +372,10 @@ namespace LENet
             if (unsequencedGroup - index != peer.IncomingUnsequencedGroup)
             {
                 peer.IncomingUnsequencedGroup = (ushort)(unsequencedGroup - index);
-                Array.Clear(peer.UnsequencedWindow, 0, peer.UnsequencedWindow.Length);
+                
+                peer.UnsequencedWindow.SetAll(false);
             }
-            else if ((peer.UnsequencedWindow[index / 32] & (1u << (int)(index % 32u))) != 0u)
+            else if (peer.UnsequencedWindow[(int)index])
             {
                 return 0;
             }
@@ -411,16 +385,45 @@ namespace LENet
                 Data = buffer.ReadBytes(command.DataLength),
                 Flags = ENetPacketFlags.Unsequenced
             };
-            
+
             if (peer.QueueIncomingCommand(command, packet, 0) == null)
             {
                 return -1;
             }
 
-            peer.UnsequencedWindow[index / 32] |= (1u << (int)(index % 32u));
+            peer.UnsequencedWindow[(int)index] = true;
 
             return 0;
+        }
 
+        private int HandleSendUnreliable(ENetPeer peer, ENetProtocol.Send.Unreliable command, ENetBuffer buffer)
+        {
+            if (command.ChannelID >= peer.ChannelCount)
+            {
+                return -1;
+            }
+
+            if (peer.State != ENetPeerState.CONNECTED && peer.State != ENetPeerState.DISCONNECT_LATER)
+            {
+                return -1;
+            }
+
+            if (command.DataLength > buffer.BytesLeft)
+            {
+                return -1;
+            }
+
+            var packet = new ENetPacket
+            {
+                Data = buffer.ReadBytes(command.DataLength)
+            };
+
+            if (peer.QueueIncomingCommand(command, packet, 0) == null)
+            {
+                return -1;
+            }
+
+            return 0;
         }
 
         private int HandleSendFragment(ENetPeer peer, ENetProtocol.Send.Fragment command, ENetBuffer buffer)
@@ -435,12 +438,12 @@ namespace LENet
                 return -1;
             }
 
-            uint fragmentLength = command.DataLength;
-            if (buffer.BytesLeft < fragmentLength)
+            if (command.DataLength > buffer.BytesLeft)
             {
                 return -1;
             }
 
+            uint fragmentLength = command.DataLength;
             var channel = peer.Channels[command.ChannelID];
             uint startSequenceNumber = command.StartSequenceNumber;
             ushort startWindow = (ushort)(startSequenceNumber / ENetPeer.RELIABLE_WINDOW_SIZE);
@@ -515,25 +518,24 @@ namespace LENet
                     Data = new byte[totalLength],
                     Flags = ENetPacketFlags.Reliable,
                 };
-                var hostCommand = new ENetProtocol.Send.Fragment
-                {
-                    Flags = command.Flags,
-                    ChannelID = command.ChannelID,
-                    ReliableSequenceNumber = (ushort)startSequenceNumber,
 
-                    StartSequenceNumber = (ushort)startSequenceNumber,
-                    DataLength = (ushort)fragmentLength,
-                    FragmentNumber = fragmentNumber,
-                    FragmentCount = fragmentCount,
-                    FragmentOffset = fragmentOffset,
-                    TotalLength = totalLength,
-                };
+                var hostCommand = command;
+
+                hostCommand.ReliableSequenceNumber = (ushort)startSequenceNumber;
+                hostCommand.StartSequenceNumber = (ushort)startSequenceNumber;
+                hostCommand.DataLength = (ushort)fragmentLength;
+                hostCommand.FragmentNumber = fragmentNumber;
+                hostCommand.FragmentCount = fragmentCount;
+                hostCommand.FragmentOffset = fragmentOffset;
+                hostCommand.TotalLength = totalLength;
+
                 startCommand = peer.QueueIncomingCommand(hostCommand, packet, fragmentCount);
             }
 
             if (!startCommand.Fragments[(int)fragmentNumber])
             {
                 startCommand.FragmentsRemaining--;
+
                 startCommand.Fragments[(int)fragmentNumber] = true;
 
                 if (fragmentOffset + fragmentLength > startCommand.Packet.DataLength)
@@ -567,6 +569,7 @@ namespace LENet
             }
 
             peer.WindowSize = Math.Clamp(peer.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
+            
             return 0;
         }
 
@@ -575,6 +578,7 @@ namespace LENet
             peer.PacketThrottleInterval = command.PacketThrottleInterval;
             peer.PacketThrottleAcceleration = command.PacketThrottleAcceleration;
             peer.PacketThrottleDeceleration = command.PacketThrottleDeceleration;
+            
             return 0;
         }
 
@@ -618,9 +622,9 @@ namespace LENet
             uint receivedSentTime = command.ReceivedSentTime;
             receivedSentTime |= ServiceTime & 0xFFFF0000u;
 
-            if ((receivedSentTime & 0x8000) > (ServiceTime & 0x8000))
+            if ((receivedSentTime & 0x8000u) > (ServiceTime & 0x8000u))
             {
-                receivedSentTime -= 0x10000;
+                receivedSentTime -= 0x10000u;
             }
 
             if (ENET_TIME_LESS(ServiceTime, receivedSentTime))
@@ -693,7 +697,9 @@ namespace LENet
                     break;
 
                 case ENetPeerState.DISCONNECT_LATER:
-                    if (peer.OutgoingReliableCommands.Empty && peer.OutgoingUnreliableCommands.Empty && peer.SentReliableCommands.Empty)
+                    if (peer.OutgoingReliableCommands.Empty 
+                        && peer.OutgoingUnreliableCommands.Empty
+                        && peer.SentReliableCommands.Empty)
                     {
                         peer.Disconnect(peer.DisconnectData);
                     }
@@ -702,6 +708,7 @@ namespace LENet
                 default:
                     break;
             }
+
             return 0;
         }
 
@@ -777,12 +784,14 @@ namespace LENet
 
                 peer = Peers[peerID];
 
-                if (peer.State == ENetPeerState.DISCONNECTED || peer.State == ENetPeerState.ZOMBIE)
+                if (peer.State == ENetPeerState.DISCONNECTED 
+                    || peer.State == ENetPeerState.ZOMBIE)
                 {
                     return 0;
                 }
 
-                if ((receivedAddress.Host != peer.Address.Host || receivedAddress.Port != peer.Address.Port)
+                if ((receivedAddress.Host != peer.Address.Host
+                    || receivedAddress.Port != peer.Address.Port)
                         && peer.Address.Host != ENetAddress.Broadcast)
                 {
                     return 0;
@@ -809,6 +818,11 @@ namespace LENet
                 if (peer == null && !(command is ENetProtocol.Connect))
                 {
                     break;
+                }
+
+                if(command is ENetProtocol.Send.Reliable rl && rl.DataLength == 69)
+                {
+                    ;
                 }
 
                 int result = command switch
@@ -873,40 +887,31 @@ namespace LENet
             var buffer = new ENetBuffer(MAXIMUM_MTU);
             for (; ; )
             {
-                try
+                var receivedAddress = new ENetAddress(ENetAddress.Any, 0);
+                var length = Socket.ReceiveFrom(ref receivedAddress, buffer);
+
+                if (length < 0)
                 {
-                    var endPoint = new IPEndPoint(IPAddress.Any, 0) as EndPoint;
-                    int length = Socket.ReceiveFrom(buffer.Data, SocketFlags.None, ref endPoint);
-                    var receivedAddress = new ENetAddress(endPoint as IPEndPoint);
-
-                    if (length == 0)
-                    {
-                        return 0;
-                    }
-
-                    buffer.Position = 0;
-                    buffer.DataLength = (uint)length;
-                    TotalReceivedData += (uint)length;
-                    TotalReceivedPackets++;
-
-                    var result = HandleIncomingCommands(evnt, receivedAddress, buffer);
-
-                    if (result == 1)
-                    {
-                        return 1;
-                    }
-                    else if (result == -1)
-                    {
-                        return -1;
-                    }
+                    return -1;
                 }
-                catch (SocketException error)
+
+                if (length == 0)
                 {
-                    if (error.SocketErrorCode != SocketError.WouldBlock && error.SocketErrorCode != SocketError.ConnectionReset)
-                    {
-                        return -1;
-                    }
                     return 0;
+                }
+
+                buffer.DataLength = (uint)length;
+                TotalReceivedData += (uint)length;
+                TotalReceivedPackets++;
+
+                switch (HandleIncomingCommands(evnt, receivedAddress, buffer))
+                {
+                    case 1:
+                        return 1;
+                    case -1:
+                        return -1;
+                    default:
+                        break;
                 }
             }
         }
@@ -916,13 +921,15 @@ namespace LENet
             var currentAcknowledgement = peer.Acknowledgements.Begin;
             while (currentAcknowledgement != peer.Acknowledgements.End)
             {
-                if (buffer.BytesLeft < ENetProtocol.Acknowledge.SIZE)
+                if (ENetProtocol.Acknowledge.SIZE > buffer.BytesLeft)
                 {
                     continueSending = true;
+
                     break;
                 }
 
                 var acknowledgement = currentAcknowledgement.Value;
+                
                 currentAcknowledgement = currentAcknowledgement.Next;
 
                 var command = new ENetProtocol.Acknowledge
@@ -931,6 +938,7 @@ namespace LENet
                     ReceivedReliableSequenceNumber = acknowledgement.command.ReliableSequenceNumber,
                     ReceivedSentTime = (ushort)acknowledgement.SentTime,
                 };
+
                 command.Write(buffer);
 
                 if (acknowledgement.command is ENetProtocol.Disconnect)
@@ -945,6 +953,7 @@ namespace LENet
         private void SendUnreliableOutgoingCommands(ENetPeer peer, ENetBuffer buffer, ref bool continueSending) 
         {
             var currentCommand = peer.OutgoingUnreliableCommands.Begin;
+            
             while (currentCommand != peer.OutgoingUnreliableCommands.End)
             {
                 var outgoingCommand = currentCommand.Value;
@@ -955,9 +964,10 @@ namespace LENet
                     commandSize += outgoingCommand.Packet.DataLength;
                 }
 
-                if(buffer.BytesLeft < commandSize)
+                if(commandSize > buffer.BytesLeft)
                 {
                     continueSending = true;
+
                     break;
                 }
 
@@ -966,7 +976,7 @@ namespace LENet
                 if(outgoingCommand.Packet != null)
                 {
                     peer.PacketThrottleCounter += ENetPeer.PACKET_THROTTLE_COUNTER;
-                    peer.PacketThrottleCounter %= ENetPeer.PACKET_THROTTLE_COUNTER;
+                    peer.PacketThrottleCounter %= ENetPeer.PACKET_THROTTLE_SCALE;
                    
                     if(peer.PacketThrottleCounter > peer.PacketThrottle)
                     {
@@ -999,9 +1009,11 @@ namespace LENet
         {
             var currentCommand = peer.SentReliableCommands.Begin;
             var insertPosition = peer.OutgoingReliableCommands.Begin;
+
             while (currentCommand != peer.SentReliableCommands.End)
             {
                 var outgoingCommand = currentCommand.Value;
+
                 currentCommand = currentCommand.Next;
 
                 if (ENET_TIME_DIFFERENCE(ServiceTime, outgoingCommand.SentTime) < outgoingCommand.RoundTripTimeout)
@@ -1041,6 +1053,7 @@ namespace LENet
                     && !peer.SentReliableCommands.Empty)
                 {
                     outgoingCommand = currentCommand.Value;
+
                     peer.NextTimeout = outgoingCommand.SentTime + outgoingCommand.RoundTripTimeout;
                 }
             }
@@ -1051,6 +1064,7 @@ namespace LENet
         private void SendReliableOutgoingCommands(ENetPeer peer, ENetBuffer buffer, ref bool continueSending, ref bool hasSentTime)
         {
             var currentCommand = peer.OutgoingReliableCommands.Begin;
+            
             while(currentCommand != peer.OutgoingReliableCommands.End)
             {
                 var outgoingCommand = currentCommand.Value;
@@ -1072,7 +1086,7 @@ namespace LENet
 
                 uint commandSize = outgoingCommand.Command.Size;
 
-                if (buffer.BytesLeft < commandSize)
+                if (commandSize > buffer.BytesLeft)
                 {
                     continueSending = true;
                     break;
@@ -1087,7 +1101,7 @@ namespace LENet
                         break;
                     }
 
-                    if(buffer.BytesLeft < (commandSize + outgoingCommand.FragmentLength))
+                    if((ushort)(commandSize + outgoingCommand.FragmentLength) > (ushort)buffer.BytesLeft)
                     {
                         continueSending = true;
 
@@ -1127,6 +1141,7 @@ namespace LENet
                 if(outgoingCommand.Packet != null)
                 {
                     buffer.WriteBytes(outgoingCommand.Packet.Data, outgoingCommand.FragmentOffset, outgoingCommand.FragmentLength);
+                    
                     peer.ReliableDataInTransit += outgoingCommand.FragmentLength;
                 }
 
@@ -1136,8 +1151,12 @@ namespace LENet
 
         private int SendOutgoingCommands(ENetEvent evnt, bool checkForTimeout)
         {
-            bool continueSending = true;
+
             var buffer = new ENetBuffer(MAXIMUM_MTU);
+
+            bool continueSending = true;
+
+
             while (continueSending)
             {
                 continueSending = false;
@@ -1175,7 +1194,7 @@ namespace LENet
                     else if (currentPeer.SentReliableCommands.Empty
                         && ENET_TIME_DIFFERENCE(ServiceTime, currentPeer.LastReceiveTime) >= ENetPeer.PING_INTERVAL)
                     {
-                        if (buffer.BytesLeft >= ENetProtocol.Ping.SIZE)
+                        if (ENetProtocol.Ping.SIZE <= buffer.BytesLeft)
                         {
                             currentPeer.Ping();
                             SendReliableOutgoingCommands(currentPeer, buffer, ref continueSending, ref hasSentTime);
@@ -1220,6 +1239,8 @@ namespace LENet
                     }
 
 
+                    uint bufferLength = buffer.Position;
+                    uint bufferOffset = 0;
 
                     var header = new ENetProtocolHeader
                     {
@@ -1227,33 +1248,23 @@ namespace LENet
                         PeerID = currentPeer.OutgoingPeerID,
                     };
 
-                    uint bufferOffset = 0;
-
                     if (hasSentTime)
                     {
                         header.TimeSent = (ushort)ServiceTime;
                     }
                     else
                     {
+                        header.TimeSent = null;
                         bufferOffset += 2;
+                        bufferLength -= 2;
                     }
 
-                    uint writenLength = buffer.Position;
                     buffer.Position = bufferOffset;
                     header.Write(buffer);
 
                     currentPeer.LastSendTime = ServiceTime;
 
-                    int sentLength = 0;
-                    try
-                    {
-                        var endpoint = new IPEndPoint(currentPeer.Address.Host, currentPeer.Address.Port);
-                        sentLength = Socket.SendTo(buffer.Data, (int)bufferOffset, (int)(writenLength - bufferOffset), SocketFlags.None, endpoint);
-                    }
-                    catch (SocketException)
-                    {
-                        sentLength = -1;
-                    }
+                    int sentLength = Socket.SendTo(currentPeer.Address, buffer.Data, bufferOffset, bufferLength);
 
                     RemoveSentUnreliableCommands(currentPeer);
 
@@ -1275,6 +1286,7 @@ namespace LENet
         public void Flush()
         {
             ServiceTime = GetTime();
+
             SendOutgoingCommands(null, false);
         }
 

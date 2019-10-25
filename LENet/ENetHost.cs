@@ -9,7 +9,8 @@ namespace LENet
     {
         public const uint RECEIVE_BUFFER_SIZE = 256 * 1024;
         public const uint SEND_BUFFER_SIZE = 256 * 1024;
-        public const uint BANDWIDTH_THROTTLE_INTERVAL = 0x0FFFFFFFF;
+        // public const uint BANDWIDTH_THROTTLE_INTERVAL = 0x0FFFFFFFF;
+        public const long BANDWIDTH_THROTTLE_INTERVAL = -1;
         public const ushort DEFAULT_MTU = 1400;
         public const ushort MINIMUM_MTU = 576;
         public const ushort MAXIMUM_MTU = 4096;
@@ -30,7 +31,7 @@ namespace LENet
         public uint PeerCount => (uint)Peers.Count;
         public uint ChannelLimit { get; set; }
         public uint ServiceTime { get; set; }
-        public ENetList<ENetPeer>DispatchQueue { get; set; } = new ENetList<ENetPeer>();
+        public ENetList<ENetPeer> DispatchQueue { get; set; } = new ENetList<ENetPeer>();
 
         public uint TotalSentData { get; set; }
         public uint TotalSentPackets { get; set; }
@@ -54,7 +55,7 @@ namespace LENet
             var host = new ENetHost
             {
                 Peers = Utils.MakeList<ENetPeer>(peerCount),
-                Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp),
+                Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.IP),
                 ChannelLimit = MAXIMUM_CHANNEL_COUNT,
                 IncomingBandwidth = incomingBandwith,
                 OutgoingBandwidth = outgoingBandwith,
@@ -267,6 +268,7 @@ namespace LENet
                     }
 
                     peer.PacketThrottleLimit = throttle;
+
                     if(peer.PacketThrottle > peer.PacketThrottleLimit)
                     {
                         peer.PacketThrottle = peer.PacketThrottleLimit;
@@ -298,7 +300,8 @@ namespace LENet
                                 continue;
                             }
 
-                            if (peer.OutgoingBandwidth > 0 && peer.OutgoingBandwidth >= bandwidthLimit)
+                            if (peer.OutgoingBandwidth > 0 
+                                && peer.OutgoingBandwidth >= bandwidthLimit)
                             {
                                 continue;
                             }
@@ -318,14 +321,23 @@ namespace LENet
                     {
                         continue;
                     }
+
                     var command = new ENetProtocol.BandwidthLimit
                     {
+                        Flags = ENetCommandFlag.ACKNOWLEDGE,
                         ChannelID = 0xFF,
                         OutgoingBandwidth = OutgoingBandwidth,
-                        IncomingBandwidth = peer.IncomingBandwidthThrottleEpoch == timeCurrent
-                                            ? peer.OutgoingBandwidth
-                                            : bandwidthLimit,
                     };
+
+                    if (peer.IncomingBandwidthThrottleEpoch == timeCurrent)
+                    {
+                        command.IncomingBandwidth = peer.OutgoingBandwidth;
+                    }
+                    else
+                    {
+                        command.IncomingBandwidth = bandwidthLimit;
+                    }
+
                     peer.QueueOutgoingCommand(command, null, 0, 0);
                 }
             }

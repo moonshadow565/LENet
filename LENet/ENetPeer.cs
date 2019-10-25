@@ -28,7 +28,8 @@ namespace LENet
         public const byte PACKET_THROTTLE_DECELERATION = 2;
         public const ushort PACKET_THROTTLE_INTERVAL = 5000;
         public const uint PACKET_LOSS_SCALE = (1 << 16);
-        public const uint PACKET_LOSS_INTERVAL = 0x0FFFFFFFF;
+        // FIXME: public const uint PACKET_LOSS_INTERVAL = 0x0FFFFFFFF;
+        public const long PACKET_LOSS_INTERVAL = -1;
         public const uint WINDOW_SIZE_SCALE = 64 * 1024;
         public const byte TIMEOUT_LIMIT = 32;
         public const ushort TIMEOUT_MINIMUM = 5000;
@@ -92,7 +93,7 @@ namespace LENet
         public bool NeedsDispatch { get; set; }
         public ushort IncomingUnsequencedGroup { get; set; }
         public ushort OutgoingUnsequencedGroup { get; set; }
-        public uint[] UnsequencedWindow { get; set; } = new uint[UNSEQUENCED_WINDOW_SIZE / 32];
+        public BitArray UnsequencedWindow { get; set; } = new BitArray(UNSEQUENCED_WINDOW_SIZE);
         public uint DisconnectData { get; set; }
 
         public ENetPeer() { }
@@ -123,7 +124,12 @@ namespace LENet
             else if (rtt < LastRoundTripTime)
             {
                 PacketThrottle += PacketThrottleAcceleration;
-                PacketThrottle = Math.Clamp(PacketThrottle, 0u, PacketThrottleLimit);
+                
+                if(PacketThrottle > PacketThrottleLimit)
+                {
+                    PacketThrottle = PacketThrottleLimit;
+                }
+
                 return 1;
             }
             else if (rtt > LastRoundTripTime + 2u * LastRoundTripTimeVariance)
@@ -136,6 +142,7 @@ namespace LENet
                 {
                     PacketThrottle = 0;
                 }
+
                 return -1;
             }
             return 0;
@@ -149,13 +156,18 @@ namespace LENet
             }
 
             var channel = Channels[channelID];
+
             uint fragmentLength = (uint)(MTU - ENetProtocolHeader.SIZE - ENetProtocol.Send.Fragment.SIZE);
+            
             if (packet.DataLength > fragmentLength)
             {
                 ushort startSequenceNumber = (ushort)(channel.OutgoingReliableSequenceNumber + 1);
                 uint fragmentCount = (packet.DataLength + fragmentLength - 1u) / fragmentLength;
                 uint fragmentNumber = 0;
-                for (uint fragmentOffset = 0; fragmentOffset < packet.DataLength; fragmentOffset += fragmentLength)
+                uint fragmentOffset = 0;
+
+                for (; fragmentOffset < packet.DataLength; 
+                     fragmentOffset += fragmentLength, fragmentNumber++)
                 {
                     if (packet.DataLength - fragmentOffset < fragmentLength)
                     {
@@ -180,7 +192,6 @@ namespace LENet
                         }
                     };
                     SetupOutgoingCommand(fragment);
-                    fragmentNumber++;
                 }
                 return 0;
             }
@@ -229,6 +240,7 @@ namespace LENet
             {
                 return -1;
             }
+
             return 0;
         }
 
@@ -241,7 +253,9 @@ namespace LENet
             }
 
             var incomingCommand = DispatchedCommands.Begin.Remove().Value;
+            
             ChannelID = incomingCommand.Command.ChannelID;
+            
             return incomingCommand.Packet;
         }
 
@@ -267,7 +281,7 @@ namespace LENet
                     channel.IncomingReliableCommands.Clear();
                     channel.IncomingUnreliableCommands.Clear();
                 }
-                Channels = new List<ENetChannel>();
+                Channels.Clear();
             }
         }
 
@@ -314,7 +328,7 @@ namespace LENet
             OutgoingUnsequencedGroup = 0;
             DisconnectData = 0;
 
-            Array.Clear(UnsequencedWindow, 0, UnsequencedWindow.Length);
+            UnsequencedWindow.SetAll(false);
             ResetQueues();
         }
 
@@ -324,11 +338,13 @@ namespace LENet
             {
                 return;
             }
+
             var command = new ENetProtocol.Ping
             {
                 ChannelID = 0xFF,
                 Flags = ENetCommandFlag.ACKNOWLEDGE,
             };
+
             QueueOutgoingCommand(command, null, 0, 0);
         }
 
@@ -338,9 +354,11 @@ namespace LENet
             {
                 return;
             }
+
             if (State != ENetPeerState.ZOMBIE && State != ENetPeerState.DISCONNECTING)
             {
                 ResetQueues();
+
                 var command = new ENetProtocol.Disconnect
                 {
                     Flags = ENetCommandFlag.UNSEQUENCED,
@@ -349,6 +367,7 @@ namespace LENet
                 };
 
                 QueueOutgoingCommand(command, null, 0, 0);
+
                 Host.Flush();
             }
             Reset();
@@ -363,6 +382,8 @@ namespace LENet
             {
                 return;
             }
+
+            ResetQueues();
             
             var command = new ENetProtocol.Disconnect
             {
@@ -396,7 +417,9 @@ namespace LENet
         public void DisconnectLater(uint data)
         {
             if ((State == ENetPeerState.CONNECTED || State == ENetPeerState.DISCONNECT_LATER)
-                && !(OutgoingReliableCommands.Empty && OutgoingUnreliableCommands.Empty && SentReliableCommands.Empty))
+                && !(OutgoingReliableCommands.Empty 
+                     && OutgoingUnreliableCommands.Empty 
+                     && SentReliableCommands.Empty))
             {
                 State = ENetPeerState.DISCONNECT_LATER;
                 DisconnectData = data;
@@ -446,6 +469,7 @@ namespace LENet
             if (outgoingCommand.Command.ChannelID == 0xFF)
             {
                 OutgoingReliableSequenceNumber++;
+
                 outgoingCommand.ReliableSequenceNumber = OutgoingReliableSequenceNumber;
                 outgoingCommand.UnreliableSequenceNumber = 0;
             }
@@ -501,7 +525,9 @@ namespace LENet
                 FragmentLength = length,
                 Packet = packet,
             };
+
             SetupOutgoingCommand(outgoingCommand);
+
             return outgoingCommand;
         }
 
@@ -513,6 +539,7 @@ namespace LENet
                  currentCommand = currentCommand.Next)
             {
                 var incomingCommand = currentCommand.Value;
+
                 if (incomingCommand.Command is ENetProtocol.Send.Unreliable)
                 {
                     if (incomingCommand.ReliableSequenceNumber != channel.IncomingReliableSequenceNumber)
@@ -541,11 +568,13 @@ namespace LENet
         public void DispatchIncomingReliableCommands(ENetChannel channel)
         {
             ENetListNode<ENetIncomingCommand> currentCommand;
+
             for (currentCommand = channel.IncomingReliableCommands.Begin;
                  currentCommand != channel.IncomingReliableCommands.End; 
                  currentCommand = currentCommand.Next)
             {
                 var incomingCommand = currentCommand.Value;
+
                 if(incomingCommand.FragmentsRemaining > 0 
                     || incomingCommand.ReliableSequenceNumber != (ushort)(channel.IncomingReliableSequenceNumber + 1))
                 {
@@ -565,7 +594,7 @@ namespace LENet
                 return;
             }
 
-            channel.IncomingReliableSequenceNumber = 0;
+            channel.IncomingUnreliableSequenceNumber = 0;
 
             DispatchedCommands.End.Move(channel.IncomingReliableCommands.Begin, currentCommand.Prev);
 
@@ -646,6 +675,7 @@ namespace LENet
                             {
                                 break;
                             }
+
                             return notifyError;
                         }
                     }
@@ -699,6 +729,7 @@ namespace LENet
                             {
                                 break;
                             }
+
                             return notifyError;
                         }
                     }
@@ -719,7 +750,7 @@ namespace LENet
                 FragmentCount = fragmentCount,
                 FragmentsRemaining = fragmentCount,
                 Packet = packet,
-                Fragments = new BitArray((int)fragmentCount),
+                Fragments = new BitArray((int)fragmentCount), // CHECKME: (fragmentCount + 31) / 32
             };
 
             currentCommand.Next.Insert(incomingCommand.Node);
