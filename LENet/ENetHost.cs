@@ -20,6 +20,7 @@ namespace LENet
         public const byte MAXIMUM_CHANNEL_COUNT = 255;
         public const byte MAXIMUM_PEER_ID = 0x7F;
 
+        public ENetVersion Version { get; set; }
         public Socket Socket { get; set; }
         public ENetAddress Address { get; set; }
         public uint IncomingBandwidth { get; set; }
@@ -45,15 +46,16 @@ namespace LENet
 
         private ENetHost() { }
 
-        public static ENetHost Create(ENetAddress? address, uint peerCount, uint incomingBandwith, uint outgoingBandwith)
+        public static ENetHost Create(ENetVersion version, ENetAddress? address, uint peerCount, uint incomingBandwith, uint outgoingBandwith)
         {
-            if(peerCount > MAXIMUM_PEER_ID)
+            if(peerCount > version.MaxPeerID)
             {
                 return null;
             }
 
             var host = new ENetHost
             {
+                Version = version,
                 Peers = Utils.MakeList<ENetPeer>(peerCount),
                 Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.IP),
                 ChannelLimit = MAXIMUM_CHANNEL_COUNT,
@@ -110,7 +112,7 @@ namespace LENet
             currentPeer.Channels = Utils.MakeList<ENetChannel>(channelCount);
             currentPeer.State = ENetPeerState.CONNECTING;
             currentPeer.Address = address;
-            currentPeer.SessionID = (byte)(_nextSessionID++ & 0xFFu);
+            currentPeer.SessionID = _nextSessionID++;
             
             if(OutgoingBandwidth == 0)
             {

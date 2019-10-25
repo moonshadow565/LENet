@@ -44,9 +44,9 @@ namespace LENet
         public const uint FREE_RELIABLE_WINDOWS_MASK = (1u << FREE_RELIABLE_WINDOWS) - 1u;
 
         public ENetHost Host { get; set; }
-        public byte OutgoingPeerID { get; set; }
-        public byte IncomingPeerID { get; set; }
-        public byte SessionID { get; set; }
+        public ushort OutgoingPeerID { get; set; }
+        public ushort IncomingPeerID { get; set; }
+        public uint SessionID { get; set; }
         public ENetAddress Address { get; set; } = new ENetAddress();
         public object UserData { get; set; }
         public ENetPeerState State { get; set; }
@@ -157,7 +157,7 @@ namespace LENet
 
             var channel = Channels[channelID];
 
-            uint fragmentLength = (uint)(MTU - ENetProtocolHeader.SIZE - ENetProtocol.Send.Fragment.SIZE);
+            uint fragmentLength = MTU - Host.Version.MaxHeaderSizeSend - ENetProtocol.Send.Fragment.SIZE;
             
             if (packet.DataLength > fragmentLength)
             {
@@ -287,7 +287,7 @@ namespace LENet
 
         public void Reset()
         {
-            OutgoingPeerID = ENetHost.MAXIMUM_PEER_ID;
+            OutgoingPeerID = Host.Version.MaxPeerID;
             SessionID = 0;
 
             State = ENetPeerState.DISCONNECTED;

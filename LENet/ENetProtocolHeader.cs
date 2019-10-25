@@ -14,30 +14,53 @@ namespace LENet
 
     public sealed class ENetProtocolHeader
     {
-        public uint CheckSum { get; set; } = 0;
-        public byte SessionID { get; set; } = 0;
-        public byte PeerID { get; set; } = 0;
+        public uint SessionID { get; set; } = 0;
+        public ushort PeerID { get; set; } = 0;
         public ushort? TimeSent { get; set; } = null;
 
-        public const byte SIZE = 8;
-
-        public static ENetProtocolHeader Create(ENetBuffer reader)
+        public static ENetProtocolHeader Create(ENetBuffer reader, ENetVersion version)
         {
             var result = new ENetProtocolHeader();
 
-            if (reader.BytesLeft < (SIZE - 2))
+            if ((version.MaxHeaderSizeReceive - 2) > reader.BytesLeft)
             {
                 return null;
             }
 
-            result.CheckSum = reader.ReadUInt32();
-            result.SessionID = reader.ReadByte();
-            byte peerID_hasTimeSent = reader.ReadByte();
-            result.PeerID = (byte)(peerID_hasTimeSent & 0x7F);
+            reader.Position += version.ChecksumSizeReceive;
 
-            if ((peerID_hasTimeSent & 0x80) == 0x80)
+            bool hasSentTime = false;
+
+            switch(version)
             {
-                if(reader.BytesLeft < 2)
+                case ENetVersion.Seasson12 _:
+                    {
+                        result.SessionID = reader.ReadUInt32();
+                        ushort peerID = reader.ReadUInt16();
+                        if ((peerID & 0x8000u) != 0)
+                        {
+                            hasSentTime = true;
+                        }
+                        result.PeerID = (ushort)(peerID & 0x7FFF);
+                    }
+                    break;
+                case ENetVersion.Seasson34 _:
+                case ENetVersion.Patch420 _:
+                case ENetVersion.Seasson8 _:
+                    {
+                        result.SessionID = reader.ReadByte();
+                        byte peerID = reader.ReadByte();
+                        if ((peerID & 0x80) != 0)
+                        {
+                            hasSentTime = true;
+                        }
+                        break;
+                    }
+            }
+
+            if (hasSentTime)
+            {
+                if(2 > reader.BytesLeft)
                 {
                     return null;
                 }
@@ -48,11 +71,29 @@ namespace LENet
             return result;
         }
 
-        public void Write(ENetBuffer writer)
+        public void Write(ENetBuffer writer, ENetVersion version)
         {
-            writer.WriteUInt32(CheckSum);
-            writer.WriteByte(SessionID);
-            writer.WriteByte((byte)((PeerID) | (TimeSent != null ? 0x80u : 0x0u)));
+            writer.Position += version.ChecksumSizeSend;
+
+            switch (version)
+            {
+                case ENetVersion.Seasson12 _:
+                    {
+                        writer.WriteUInt32(SessionID);
+                        ushort peerID = (ushort)(PeerID | (TimeSent != null ? 0x8000u : 0u));
+                        writer.WriteUInt16(peerID);
+                    }
+                    break;
+                case ENetVersion.Seasson34 _:
+                case ENetVersion.Patch420 _:
+                case ENetVersion.Seasson8 _:
+                    {
+                        writer.WriteByte((byte)SessionID);
+                        ushort peerID = (byte)(PeerID | (TimeSent != null ? 0x80 : 0u));
+                        writer.WriteUInt16(peerID);
+                    }
+                    break;
+            }
 
             if (TimeSent != null)
             {

@@ -58,10 +58,10 @@ namespace DummyServer
             var server = new ENet { name = "Server" };
             var client = new ENet { name = "Client" };
 
-            server.host = ENetHost.Create(address, 32, 0, 0);
+            server.host = ENetHost.Create(new ENetVersion.Seasson12(), address, 32, 0, 0);
 
-            client.host = ENetHost.Create(null, 1, 0, 0);
-            client.host.Connect(address, 8);
+            client.host = ENetHost.Create(new ENetVersion.Seasson12(), null, 1, 0, 0);
+            client.peer = client.host.Connect(address, 8);
 
 
             client.RunLoop();
@@ -92,7 +92,7 @@ namespace DummyServer
         {
             var address = new ENetAddress("127.0.0.1", 5005);
             var client = new ENet { name = "Client" };
-            client.host = ENetHost.Create(null, 1, 0, 0);
+            client.host = ENetHost.Create(new ENetVersion.Patch420(), null, 1, 0, 0);
             client.host.Connect(address, 8);
 
             for(; ; )
@@ -110,7 +110,7 @@ namespace DummyServer
         {
             var address = new ENetAddress("127.0.0.1", 5005);
             var server = new ENet { name = "Server" };
-            server.host = ENetHost.Create(address, 1, 0, 0);
+            server.host = ENetHost.Create(new ENetVersion.Patch420(), address, 1, 0, 0);
 
             for (; ; )
             {
@@ -129,7 +129,7 @@ namespace DummyServer
 
         static void Main(string[] args)
         {
-            TestServer();
+            TestAsync();
         }
     }
 }

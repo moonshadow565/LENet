@@ -32,12 +32,12 @@ namespace LENet
         
         public const byte BASE_SIZE = 4;
 
-        protected abstract void ReadInternal(ENetBuffer reader);
-        protected abstract void WriteInternal(ENetBuffer writer);
+        protected abstract void ReadInternal(ENetBuffer reader, ENetVersion version);
+        protected abstract void WriteInternal(ENetBuffer writer, ENetVersion version);
 
         private ENetProtocol() { }
 
-        public static ENetProtocol Create(ENetBuffer reader)
+        public static ENetProtocol Create(ENetBuffer reader, ENetVersion version)
         {
             if(BASE_SIZE > reader.BytesLeft)
             {
@@ -73,17 +73,17 @@ namespace LENet
             result.ChannelID = channel;
             result.Flags = (ENetCommandFlag)(command_flags & 0xF0);
             result.ReliableSequenceNumber = reliableSequenceNumber;
-            result.ReadInternal(reader);
+            result.ReadInternal(reader, version);
 
             return result;
         }
 
-        public void Write(ENetBuffer writer)
+        public void Write(ENetBuffer writer, ENetVersion version)
         {
             writer.WriteByte((byte)((byte)Flags | (byte)(Command)));
             writer.WriteByte(ChannelID);
             writer.WriteUInt16(ReliableSequenceNumber);
-            WriteInternal(writer);
+            WriteInternal(writer, version);
         }
 
         public sealed class Acknowledge : ENetProtocol
@@ -94,12 +94,12 @@ namespace LENet
             public override byte Size => SIZE;
             public override ENetProtocolCommand Command => ENetProtocolCommand.ACKNOWLEDGE;
 
-            protected override void ReadInternal(ENetBuffer reader)
+            protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
             {
                 ReceivedReliableSequenceNumber = reader.ReadUInt16();
                 ReceivedSentTime = reader.ReadUInt16();
             }
-            protected override void WriteInternal(ENetBuffer writer)
+            protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
             {
                 writer.WriteUInt16(ReceivedReliableSequenceNumber);
                 writer.WriteUInt16(ReceivedSentTime);
@@ -108,7 +108,7 @@ namespace LENet
 
         public sealed class Connect : ENetProtocol
         {
-            public byte OutgoingPeerID { get; set; }
+            public ushort OutgoingPeerID { get; set; }
             public ushort MTU { get; set; }
             public uint WindowSize { get; set; }
             public uint ChannelCount { get; set; }
@@ -117,15 +117,26 @@ namespace LENet
             public uint PacketThrottleInterval { get; set; }
             public uint PacketThrottleAcceleration { get; set; }
             public uint PacketThrottleDeceleration { get; set; }
-            public byte SessionID { get; set; }
+            public uint SessionID { get; set; }
+
             public const byte SIZE = 4 + 36;
             public override byte Size => SIZE;
             public override ENetProtocolCommand Command => ENetProtocolCommand.CONNECT;
 
-            protected override void ReadInternal(ENetBuffer reader)
+            protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
             {
-                OutgoingPeerID = reader.ReadByte();
-                reader.ReadByte();
+                switch (version)
+                {
+                    case ENetVersion.Seasson12 _:
+                        OutgoingPeerID = reader.ReadUInt16();
+                        break;
+                    case ENetVersion.Seasson34 _:
+                    case ENetVersion.Patch420 _:
+                    case ENetVersion.Seasson8 _:
+                        OutgoingPeerID = reader.ReadByte();
+                        reader.Position += 1;
+                        break;
+                }
                 MTU = reader.ReadUInt16();
                 WindowSize = reader.ReadUInt32();
                 ChannelCount = reader.ReadUInt32();
@@ -134,14 +145,34 @@ namespace LENet
                 PacketThrottleInterval = reader.ReadUInt32();
                 PacketThrottleAcceleration = reader.ReadUInt32();
                 PacketThrottleDeceleration = reader.ReadUInt32();
-                SessionID = reader.ReadByte();
-                reader.ReadBytes(3);
+                switch (version)
+                {
+                    case ENetVersion.Seasson12 _:
+                        SessionID = reader.ReadUInt32();
+                        break;
+                    case ENetVersion.Seasson34 _:
+                    case ENetVersion.Patch420 _:
+                    case ENetVersion.Seasson8 _:
+                        SessionID = reader.ReadByte();
+                        reader.Position += 3;
+                        break;
+                }
             }
 
-            protected override void WriteInternal(ENetBuffer writer)
+            protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
             {
-                writer.WriteByte(OutgoingPeerID);
-                writer.WriteByte(0);
+                switch (version)
+                {
+                    case ENetVersion.Seasson12 _:
+                        writer.WriteUInt16(OutgoingPeerID);
+                        break;
+                    case ENetVersion.Seasson34 _:
+                    case ENetVersion.Patch420 _:
+                    case ENetVersion.Seasson8 _:
+                        writer.WriteByte((byte)OutgoingPeerID);
+                        writer.Position += 1;
+                        break;
+                }
                 writer.WriteUInt16(MTU);
                 writer.WriteUInt32(WindowSize);
                 writer.WriteUInt32(ChannelCount);
@@ -150,16 +181,24 @@ namespace LENet
                 writer.WriteUInt32(PacketThrottleInterval);
                 writer.WriteUInt32(PacketThrottleAcceleration);
                 writer.WriteUInt32(PacketThrottleDeceleration);
-                writer.WriteByte(SessionID);
-                writer.WriteByte(0);
-                writer.WriteByte(0);
-                writer.WriteByte(0);
+                switch (version)
+                {
+                    case ENetVersion.Seasson12 _:
+                        writer.WriteUInt32(SessionID);
+                        break;
+                    case ENetVersion.Seasson34 _:
+                    case ENetVersion.Patch420 _:
+                    case ENetVersion.Seasson8 _:
+                        writer.WriteByte((byte)SessionID);
+                        writer.Position += 3;
+                        break;
+                }
             }
         }
 
         public sealed class VerifyConnect : ENetProtocol
         {
-            public byte OutgoingPeerID { get; set; }
+            public ushort OutgoingPeerID { get; set; }
             public ushort MTU { get; set; }
             public uint WindowSize { get; set; }
             public uint ChannelCount { get; set; }
@@ -173,10 +212,20 @@ namespace LENet
             public override byte Size => SIZE;
             public override ENetProtocolCommand Command => ENetProtocolCommand.VERIFY_CONNECT;
 
-            protected override void ReadInternal(ENetBuffer reader)
+            protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
             {
-                OutgoingPeerID = reader.ReadByte();
-                reader.ReadByte();
+                switch (version)
+                {
+                    case ENetVersion.Seasson12 _:
+                        OutgoingPeerID = reader.ReadUInt16();
+                        break;
+                    case ENetVersion.Seasson34 _:
+                    case ENetVersion.Patch420 _:
+                    case ENetVersion.Seasson8 _:
+                        OutgoingPeerID = reader.ReadByte();
+                        reader.Position += 1;
+                        break;
+                }
                 MTU = reader.ReadUInt16();
                 WindowSize = reader.ReadUInt32();
                 ChannelCount = reader.ReadUInt32();
@@ -187,10 +236,20 @@ namespace LENet
                 PacketThrottleDeceleration = reader.ReadUInt32();
             }
 
-            protected override void WriteInternal(ENetBuffer writer)
+            protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
             {
-                writer.WriteByte(OutgoingPeerID);
-                writer.WriteByte(0);
+                switch (version)
+                {
+                    case ENetVersion.Seasson12 _:
+                        writer.WriteUInt16(OutgoingPeerID);
+                        break;
+                    case ENetVersion.Seasson34 _:
+                    case ENetVersion.Patch420 _:
+                    case ENetVersion.Seasson8 _:
+                        writer.WriteByte((byte)OutgoingPeerID);
+                        writer.Position += 1;
+                        break;
+                }
                 writer.WriteUInt16(MTU);
                 writer.WriteUInt32(WindowSize);
                 writer.WriteUInt32(ChannelCount);
@@ -211,13 +270,13 @@ namespace LENet
             public override byte Size => SIZE;
             public override ENetProtocolCommand Command => ENetProtocolCommand.BANDWIDTH_LIMIT;
 
-            protected override void ReadInternal(ENetBuffer reader)
+            protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
             {
                 IncomingBandwidth = reader.ReadUInt32();
                 OutgoingBandwidth = reader.ReadUInt32();
             }
 
-            protected override void WriteInternal(ENetBuffer writer)
+            protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
             {
                 writer.WriteUInt32(IncomingBandwidth);
                 writer.WriteUInt32(OutgoingBandwidth);
@@ -234,14 +293,14 @@ namespace LENet
             public override byte Size => SIZE;
             public override ENetProtocolCommand Command => ENetProtocolCommand.THROTTLE_CONFIGURE;
 
-            protected override void ReadInternal(ENetBuffer reader)
+            protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
             {
                 PacketThrottleInterval = reader.ReadUInt32();
                 PacketThrottleAcceleration = reader.ReadUInt32();
                 PacketThrottleDeceleration = reader.ReadUInt32();
             }
 
-            protected override void WriteInternal(ENetBuffer writer)
+            protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
             {
                 writer.WriteUInt32(PacketThrottleInterval);
                 writer.WriteUInt32(PacketThrottleAcceleration);
@@ -257,12 +316,12 @@ namespace LENet
             public override byte Size => SIZE;
             public override ENetProtocolCommand Command => ENetProtocolCommand.DISCONNECT;
 
-            protected override void ReadInternal(ENetBuffer reader)
+            protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
             {
                 Data = reader.ReadUInt32();
             }
 
-            protected override void WriteInternal(ENetBuffer writer)
+            protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
             {
                 writer.WriteUInt32(Data);
             }
@@ -274,8 +333,8 @@ namespace LENet
             public override byte Size => SIZE;
             public override ENetProtocolCommand Command => ENetProtocolCommand.PING;
 
-            protected override void ReadInternal(ENetBuffer reader) { }
-            protected override void WriteInternal(ENetBuffer writer) { }
+            protected override void ReadInternal(ENetBuffer reader, ENetVersion version) { }
+            protected override void WriteInternal(ENetBuffer writer, ENetVersion version) { }
         }
 
         public sealed class None : ENetProtocol
@@ -284,8 +343,8 @@ namespace LENet
             public override byte Size => SIZE;
             public override ENetProtocolCommand Command => ENetProtocolCommand.NONE;
 
-            protected override void ReadInternal(ENetBuffer reader) { }
-            protected override void WriteInternal(ENetBuffer writer) { }
+            protected override void ReadInternal(ENetBuffer reader, ENetVersion version) { }
+            protected override void WriteInternal(ENetBuffer writer, ENetVersion version) { }
         }
 
         public abstract class Send : ENetProtocol
@@ -301,11 +360,11 @@ namespace LENet
                 public override byte Size => SIZE;
                 public override ENetProtocolCommand Command => ENetProtocolCommand.SEND_RELIABLE;
 
-                protected override void ReadInternal(ENetBuffer reader)
+                protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
                 {
                     DataLength = reader.ReadUInt16();
                 }
-                protected override void WriteInternal(ENetBuffer writer)
+                protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
                 {
                     writer.WriteUInt16(DataLength);
                 }
@@ -320,12 +379,12 @@ namespace LENet
                 public override byte Size => SIZE;
                 public override ENetProtocolCommand Command => ENetProtocolCommand.SEND_UNRELIABLE;
 
-                protected override void ReadInternal(ENetBuffer reader)
+                protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
                 {
                     UnreliableSequenceNumber = reader.ReadUInt16();
                     DataLength = reader.ReadUInt16();
                 }
-                protected override void WriteInternal(ENetBuffer writer)
+                protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
                 {
                     writer.WriteUInt16(UnreliableSequenceNumber);
                     writer.WriteUInt16(DataLength);
@@ -341,13 +400,13 @@ namespace LENet
                 public override byte Size => SIZE;
                 public override ENetProtocolCommand Command => ENetProtocolCommand.SEND_UNSEQUENCED;
 
-                protected override void ReadInternal(ENetBuffer reader)
+                protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
                 {
                     UnsequencedGroup = reader.ReadUInt16();
                     DataLength = reader.ReadUInt16();
                 }
 
-                protected override void WriteInternal(ENetBuffer writer)
+                protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
                 {
                     writer.WriteUInt16(UnsequencedGroup);
                     writer.WriteUInt16(DataLength);
@@ -367,7 +426,7 @@ namespace LENet
                 public override byte Size => SIZE;
                 public override ENetProtocolCommand Command => ENetProtocolCommand.SEND_FRAGMENT;
 
-                protected override void ReadInternal(ENetBuffer reader)
+                protected override void ReadInternal(ENetBuffer reader, ENetVersion version)
                 {
                     StartSequenceNumber = reader.ReadUInt16();
                     DataLength = reader.ReadUInt16();
@@ -377,7 +436,7 @@ namespace LENet
                     FragmentOffset = reader.ReadUInt32();
                 }
 
-                protected override void WriteInternal(ENetBuffer writer)
+                protected override void WriteInternal(ENetBuffer writer, ENetVersion version)
                 {
                     writer.WriteUInt16(StartSequenceNumber);
                     writer.WriteUInt16(DataLength);

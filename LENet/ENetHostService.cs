@@ -765,17 +765,17 @@ namespace LENet
         {
             uint receivedDataLength = buffer.DataLength;
 
-            var header = ENetProtocolHeader.Create(buffer);
+            var header = ENetProtocolHeader.Create(buffer, Version);
 
             if (header == null)
             {
                 return 0;
             }
 
-            byte peerID = header.PeerID;
+            ushort peerID = header.PeerID;
             ENetPeer peer = null;
 
-            if (peerID != MAXIMUM_PEER_ID)
+            if (peerID != Version.MaxPeerID)
             {
                 if (peerID > PeerCount)
                 {
@@ -808,7 +808,7 @@ namespace LENet
 
             while (buffer.BytesLeft > 0)
             {
-                var command = ENetProtocol.Create(buffer);
+                var command = ENetProtocol.Create(buffer, Version);
 
                 if (command == null || command is ENetProtocol.None)
                 {
@@ -939,7 +939,7 @@ namespace LENet
                     ReceivedSentTime = (ushort)acknowledgement.SentTime,
                 };
 
-                command.Write(buffer);
+                command.Write(buffer, Version);
 
                 if (acknowledgement.command is ENetProtocol.Disconnect)
                 {
@@ -985,7 +985,7 @@ namespace LENet
                     }
                 }
 
-                outgoingCommand.Command.Write(buffer);
+                outgoingCommand.Command.Write(buffer, Version);
                 outgoingCommand.Node.Remove();
 
                 if(outgoingCommand.Packet != null)
@@ -1136,7 +1136,7 @@ namespace LENet
 
                 var command = outgoingCommand.Command;
                 hasSentTime = true;
-                command.Write(buffer);
+                command.Write(buffer, Version);
 
                 if(outgoingCommand.Packet != null)
                 {
@@ -1169,7 +1169,7 @@ namespace LENet
                     }
 
                     bool hasSentTime = false;
-                    buffer.Position = ENetProtocolHeader.SIZE;
+                    buffer.Position = Version.MaxHeaderSizeSend;
                     buffer.DataLength = currentPeer.MTU;
 
                     if (!currentPeer.Acknowledgements.Empty)
@@ -1206,7 +1206,7 @@ namespace LENet
                         SendUnreliableOutgoingCommands(currentPeer, buffer, ref continueSending);
                     }
 
-                    if (buffer.Position <= ENetProtocolHeader.SIZE)
+                    if (buffer.Position <= Version.MaxHeaderSizeSend)
                     {
                         continue;
                     }
@@ -1247,7 +1247,6 @@ namespace LENet
                         SessionID = currentPeer.SessionID,
                         PeerID = currentPeer.OutgoingPeerID,
                     };
-
                     if (hasSentTime)
                     {
                         header.TimeSent = (ushort)ServiceTime;
@@ -1258,9 +1257,8 @@ namespace LENet
                         bufferOffset += 2;
                         bufferLength -= 2;
                     }
-
                     buffer.Position = bufferOffset;
-                    header.Write(buffer);
+                    header.Write(buffer, Version);
 
                     currentPeer.LastSendTime = ServiceTime;
 
