@@ -58,9 +58,9 @@ namespace DummyServer
             var server = new ENet { name = "Server" };
             var client = new ENet { name = "Client" };
 
-            server.host = ENetHost.Create(new ENetVersion.Seasson12(), address, 32, 0, 0);
+            server.host = ENetHost.Create(new ENetVersion.Patch420(), address, 32, 0, 0);
 
-            client.host = ENetHost.Create(new ENetVersion.Seasson12(), null, 1, 0, 0);
+            client.host = ENetHost.Create(new ENetVersion.Patch420(), null, 1, 0, 0);
             client.peer = client.host.Connect(address, 8);
 
 

@@ -54,6 +54,7 @@ namespace LENet
                         {
                             hasSentTime = true;
                         }
+                        result.PeerID = (ushort)(peerID & 0x7F);
                         break;
                     }
             }
@@ -89,8 +90,8 @@ namespace LENet
                 case ENetVersion.Seasson8 _:
                     {
                         writer.WriteByte((byte)SessionID);
-                        ushort peerID = (byte)(PeerID | (TimeSent != null ? 0x80 : 0u));
-                        writer.WriteUInt16(peerID);
+                        byte peerID = (byte)(PeerID | (TimeSent != null ? 0x80 : 0u));
+                        writer.WriteByte(peerID);
                     }
                     break;
             }

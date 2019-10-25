@@ -820,11 +820,6 @@ namespace LENet
                     break;
                 }
 
-                if(command is ENetProtocol.Send.Reliable rl && rl.DataLength == 69)
-                {
-                    ;
-                }
-
                 int result = command switch
                 {
                     ENetProtocol.Acknowledge c => HandleAcknowledge(evnt, peer, c),
