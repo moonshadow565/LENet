@@ -20,10 +20,10 @@ namespace ENet
             _port = port;
         }
 
-        public LENet.Address NativeData 
+        public Native.ENetAddress NativeData 
         {
-            get => new LENet.Address(_host, _port);
-            set { _host = value.Host; _port = value.Port; }
+            get => new Native.ENetAddress { host = _host, port = _port };
+            set { _host = value.host; _port = value.port; }
         }
 
         public uint IPv4Host

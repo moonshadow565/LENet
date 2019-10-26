@@ -76,8 +76,11 @@ namespace ENet
 
             CheckChannelLimit(channelLimit);
 
-
-            var nativeAddress = address != null ? address.Value.NativeData : (LENet.Address?)null;
+            LENet.Address? nativeAddress = null;
+            if(address is Address addr)
+            {
+                nativeAddress = new LENet.Address(addr.IPv4Host, addr.Port);
+            }
             try
             {
                 _host = new LENet.Host(version, nativeAddress, (uint)peerLimit, (uint)channelLimit, incomingBandwidth, outgoingBandwidth);    
@@ -136,7 +139,7 @@ namespace ENet
             CheckCreated();
             CheckChannelLimit(channelLimit);
 
-            var nativeAddress = address.NativeData;
+            var nativeAddress = new LENet.Address(address.IPv4Host, address.Port);
             try
             {
                 var peer = new Peer(_host.Connect(nativeAddress, (uint)channelLimit));

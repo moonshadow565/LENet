@@ -64,9 +64,9 @@ namespace ENet
             set { _peer.MTU = value; }
         }
 
-        public LENet.Address Address
+        public Native.ENetAddress Address
         {
-            get { return _peer.Address; }
+            get { return new Native.ENetAddress { host = _peer.Address.Host, port = _peer.Address.Port }; }
         }
 
         private void CheckCreated()

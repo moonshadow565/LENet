@@ -3,7 +3,7 @@ using System.Net;
 
 namespace LENet
 {
-    public struct Address : IEquatable<Address>
+    public struct Address
     {
         public const uint Any = 0u;
 
@@ -29,16 +29,6 @@ namespace LENet
         {
             Host = (uint)IPAddress.Parse(host).Address;
             Port = port;
-        }
-
-        public bool Equals(Address other)
-        {
-            return other.Host == Host && other.Port == Port;
-        }
-
-        public override bool Equals(object obj)
-        {
-            return obj is Address && Equals((Address)obj);
         }
     }
 }

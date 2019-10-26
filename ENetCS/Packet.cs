@@ -17,7 +17,7 @@ namespace ENet
             get
             {
                 CheckCreated();
-                throw new NotImplementedException("Packet.Data not supported in LENet!");
+                throw new NotImplementedException("Packet.Data not supported in LENet, use Packet.GetBytes()!");
             }
         }
 
