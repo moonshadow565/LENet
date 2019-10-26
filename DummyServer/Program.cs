@@ -68,20 +68,13 @@ namespace DummyServer
             client.RunLoop();
             server.RunLoop();
 
-            client.peer.Send(0, new Packet
-            {
-                Flags = PacketFlags.RELIABLE,
-                Data = new byte[42]
-            });
+            client.peer.Send(0, new Packet(42, PacketFlags.RELIABLE));
 
             client.RunLoop();
             server.RunLoop();
 
-            client.peer.Send(0, new Packet
-            {
-                Flags = PacketFlags.RELIABLE,
-                Data = new byte[69]
-            });
+            client.peer.Send(0, new Packet(69, PacketFlags.RELIABLE));
+
 
             client.RunOnce();
             server.RunOnce();

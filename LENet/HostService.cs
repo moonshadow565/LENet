@@ -252,7 +252,7 @@ namespace LENet
             currentPeer.PacketThrottleInterval = command.PacketThrottleInterval;
             currentPeer.PacketThrottleAcceleration = command.PacketThrottleAcceleration;
             currentPeer.PacketThrottleDeceleration = command.PacketThrottleDeceleration;
-            currentPeer.MTU = Math.Clamp(command.MTU, MINIMUM_MTU, MAXIMUM_MTU);
+            currentPeer.MTU = Utils.Clamp(command.MTU, MINIMUM_MTU, MAXIMUM_MTU);
 
             if (OutgoingBandwidth == 0
                 && currentPeer.IncomingBandwidth == 0)
@@ -269,7 +269,7 @@ namespace LENet
                 currentPeer.WindowSize = (Math.Min(OutgoingBandwidth, currentPeer.IncomingBandwidth) / Peer.WINDOW_SIZE_SCALE) * MINIMUM_WINDOW_SIZE;
             }
 
-            currentPeer.WindowSize = Math.Clamp(currentPeer.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
+            currentPeer.WindowSize = Utils.Clamp(currentPeer.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
 
             uint windowSize = IncomingBandwidth == 0 ? MAXIMUM_WINDOW_SIZE : (IncomingBandwidth / Peer.WINDOW_SIZE_SCALE) * MINIMUM_WINDOW_SIZE;
 
@@ -278,7 +278,7 @@ namespace LENet
                 windowSize = command.WindowSize;
             }
 
-            windowSize = Math.Clamp(windowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
+            windowSize = Utils.Clamp(windowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
 
             var verifyCommand = new Protocol.VerifyConnect
             {
@@ -318,11 +318,8 @@ namespace LENet
                 return -1;
             }
 
-            var packet = new Packet
-            {
-                Data = buffer.ReadBytes(command.DataLength),
-                Flags = PacketFlags.RELIABLE
-            };
+            var packet = new Packet(command.DataLength, PacketFlags.RELIABLE);
+            buffer.ReadBytes(packet.Data, 0, command.DataLength);
 
             if (peer.QueueIncomingCommand(command, packet, 0) == null)
             {
@@ -376,11 +373,8 @@ namespace LENet
                 return 0;
             }
 
-            var packet = new Packet
-            {
-                Data = buffer.ReadBytes(command.DataLength),
-                Flags = PacketFlags.UNSEQUENCED
-            };
+            var packet = new Packet(command.DataLength, PacketFlags.UNSEQUENCED);
+            buffer.ReadBytes(packet.Data, 0, command.DataLength);
 
             if (peer.QueueIncomingCommand(command, packet, 0) == null)
             {
@@ -409,10 +403,8 @@ namespace LENet
                 return -1;
             }
 
-            var packet = new Packet
-            {
-                Data = buffer.ReadBytes(command.DataLength)
-            };
+            var packet = new Packet(command.DataLength, PacketFlags.NONE);
+            buffer.ReadBytes(packet.Data, 0, packet.DataLength);
 
             if (peer.QueueIncomingCommand(command, packet, 0) == null)
             {
@@ -509,12 +501,7 @@ namespace LENet
 
             if (startCommand == null)
             {
-                var packet = new Packet
-                {
-                    Data = new byte[totalLength],
-                    Flags = PacketFlags.RELIABLE,
-                };
-
+                var packet = new Packet(totalLength, PacketFlags.RELIABLE);
                 var hostCommand = command;
 
                 hostCommand.ReliableSequenceNumber = (ushort)startSequenceNumber;
@@ -564,7 +551,7 @@ namespace LENet
                 peer.WindowSize = (Math.Min(peer.IncomingBandwidth, OutgoingBandwidth) / Peer.WINDOW_SIZE_SCALE) * MINIMUM_WINDOW_SIZE;
             }
 
-            peer.WindowSize = Math.Clamp(peer.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
+            peer.WindowSize = Utils.Clamp(peer.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
             
             return 0;
         }
@@ -735,14 +722,14 @@ namespace LENet
 
             peer.OutgoingPeerID = command.OutgoingPeerID;
 
-            ushort mtu = Math.Clamp(command.MTU, MINIMUM_MTU, MAXIMUM_MTU);
+            ushort mtu = Utils.Clamp(command.MTU, MINIMUM_MTU, MAXIMUM_MTU);
             
             if (mtu < peer.MTU)
             {
                 peer.MTU = mtu;
             }
 
-            uint windowSize = Math.Clamp(command.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
+            uint windowSize = Utils.Clamp(command.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
             
             if (windowSize < peer.WindowSize)
             {
@@ -816,20 +803,21 @@ namespace LENet
                     break;
                 }
 
-                int result = command switch
+                int result;
+                switch (command)
                 {
-                    Protocol.Acknowledge c => HandleAcknowledge(evnt, peer, c),
-                    Protocol.Connect c => HandleConnect(receivedAddress, ref peer, c),
-                    Protocol.VerifyConnect c => HandleVerifyConnect(evnt, peer, c),
-                    Protocol.Disconnect c => HandleDisconnect(peer, c),
-                    Protocol.Ping _ => 0,
-                    Protocol.Send.Reliable c => HandleSendReliable(peer, c, buffer),
-                    Protocol.Send.Unreliable c => HandleSendUnreliable(peer, c, buffer),
-                    Protocol.Send.Unsequenced c => HandleSendUnsequenced(peer, c, buffer),
-                    Protocol.Send.Fragment c => HandleSendFragment(peer, c, buffer),
-                    Protocol.BandwidthLimit c => HandleBandwidthLimit(peer, c),
-                    Protocol.ThrottleConfigure c => HandleThrottleConfigure(peer, c),
-                    _ => -1,
+                    case Protocol.Acknowledge c: result = HandleAcknowledge(evnt, peer, c); break;
+                    case Protocol.Connect c: result = HandleConnect(receivedAddress, ref peer, c); break;
+                    case Protocol.VerifyConnect c: result = HandleVerifyConnect(evnt, peer, c); break;
+                    case Protocol.Disconnect c: result = HandleDisconnect(peer, c); break;
+                    case Protocol.Ping _: result = 0; break;
+                    case Protocol.Send.Reliable c: result = HandleSendReliable(peer, c, buffer); break;
+                    case Protocol.Send.Unreliable c: result = HandleSendUnreliable(peer, c, buffer); break;
+                    case Protocol.Send.Unsequenced c: result = HandleSendUnsequenced(peer, c, buffer); break;
+                    case Protocol.Send.Fragment c: result = HandleSendFragment(peer, c, buffer); break;
+                    case Protocol.BandwidthLimit c: result = HandleBandwidthLimit(peer, c); break;
+                    case Protocol.ThrottleConfigure c: result = HandleThrottleConfigure(peer, c); break;
+                    default: result = -1; break;
                 };
 
                 if (result != 0)

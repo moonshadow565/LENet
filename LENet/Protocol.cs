@@ -28,24 +28,25 @@ namespace LENet
             var channel = reader.ReadByte();
             var reliableSequenceNumber = reader.ReadUInt16();
 
-            Protocol result = (byte)(command_flags & 0x0Fu) switch
+            Protocol result;
+            switch ((ProtocolCommand)(command_flags & 0x0Fu))
             {
-                (byte)ProtocolCommand.NONE => null,
-                (byte)ProtocolCommand.ACKNOWLEDGE => new Acknowledge(),
-                (byte)ProtocolCommand.CONNECT => new Connect(),
-                (byte)ProtocolCommand.VERIFY_CONNECT => new VerifyConnect(),
-                (byte)ProtocolCommand.DISCONNECT => new Disconnect(),
-                (byte)ProtocolCommand.PING => new Ping(),
-                (byte)ProtocolCommand.SEND_FRAGMENT => new Send.Fragment(),
-                (byte)ProtocolCommand.SEND_RELIABLE => new Send.Reliable(),
-                (byte)ProtocolCommand.SEND_UNRELIABLE => new Send.Unreliable(),
-                (byte)ProtocolCommand.SEND_UNSEQUENCED => new Send.Unsequenced(),
-                (byte)ProtocolCommand.BANDWIDTH_LIMIT => new BandwidthLimit(),
-                (byte)ProtocolCommand.THROTTLE_CONFIGURE => new ThrottleConfigure(),
-                _ => null,
+                case ProtocolCommand.NONE: result = null; break;
+                case ProtocolCommand.ACKNOWLEDGE: result = new Acknowledge(); break;
+                case ProtocolCommand.CONNECT: result = new Connect(); break;
+                case ProtocolCommand.VERIFY_CONNECT: result = new VerifyConnect(); break;
+                case ProtocolCommand.DISCONNECT: result = new Disconnect(); break;
+                case ProtocolCommand.PING: result = new Ping(); break;
+                case ProtocolCommand.SEND_FRAGMENT: result = new Send.Fragment(); break;
+                case ProtocolCommand.SEND_RELIABLE: result = new Send.Reliable(); break;
+                case ProtocolCommand.SEND_UNRELIABLE: result = new Send.Unreliable(); break;
+                case ProtocolCommand.SEND_UNSEQUENCED: result = new Send.Unsequenced(); break;
+                case ProtocolCommand.BANDWIDTH_LIMIT: result = new BandwidthLimit(); break;
+                case ProtocolCommand.THROTTLE_CONFIGURE: result = new ThrottleConfigure(); break;
+                default: result = null; break;
             };
 
-            if(result == null || (result.Size - BASE_SIZE) > reader.BytesLeft)
+            if (result == null || (result.Size - BASE_SIZE) > reader.BytesLeft)
             {
                 return null;
             }

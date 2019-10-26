@@ -86,5 +86,20 @@ namespace LENet
 
             return sentLength;
         }
+
+        public static byte Clamp(byte v, byte min, byte max)
+        {
+            return v > max ? max : v < min ? min : v;
+        }
+
+        public static ushort Clamp(ushort v, ushort min, ushort max)
+        {
+            return v > max ? max : v < min ? min : v;
+        }
+
+        public static uint Clamp(uint v, uint min, uint max)
+        {
+            return v > max ? max : v < min ? min : v;
+        }
     }
 }

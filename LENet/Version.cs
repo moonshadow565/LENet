@@ -4,17 +4,17 @@ namespace LENet
 {
     public sealed class Version
     {
-        public readonly ushort MaxPeerID;
+        public ushort MaxPeerID { get; }
 
-        public readonly uint ChecksumSizeSend;
+        public uint ChecksumSizeSend { get; }
 
-        public readonly uint ChecksumSizeReceive;
+        public uint ChecksumSizeReceive { get; }
 
-        public readonly uint BandwidthThrottleInterval;
+        public uint BandwidthThrottleInterval { get; }
 
-        public readonly uint PacketLossInterval;
+        public uint PacketLossInterval { get; }
 
-        private readonly uint MaxHeaderSizeBase;
+        private uint MaxHeaderSizeBase { get; }
 
         public uint MaxHeaderSizeSend => ChecksumSizeSend + MaxHeaderSizeBase;
 
@@ -30,14 +30,14 @@ namespace LENet
             PacketLossInterval = packetLossInterval;
         }
 
-        public static readonly Version Seasson12 = new Version(0x7FFF, 0, 0, 8, 1000, 10000);
+        public static Version Seasson12 { get; } = new Version(0x7FFF, 0, 0, 8, 1000, 10000);
 
-        public static readonly Version Seasson34 = new Version(0x7F, 0, 0, 4, 0xFFFFFFFF, 0xFFFFFFFF);
+        public static Version Seasson34 { get; } = new Version(0x7F, 0, 0, 4, 0xFFFFFFFF, 0xFFFFFFFF);
 
-        public static readonly Version Patch420 = new Version(0x7F, 4, 4, 4, 0xFFFFFFFF, 0xFFFFFFFF);
+        public static Version Patch420 { get; } = new Version(0x7F, 4, 4, 4, 0xFFFFFFFF, 0xFFFFFFFF);
 
-        public static readonly Version Seasson8_Client = new Version(0x7F, 8, 0, 4, 0xFFFFFFFF, 0xFFFFFFFF);
+        public static Version Seasson8_Client { get; } = new Version(0x7F, 8, 0, 4, 0xFFFFFFFF, 0xFFFFFFFF);
 
-        public static readonly Version Seasson8_Server = new Version(0x7F, 0, 8, 4, 0xFFFFFFFF, 0xFFFFFFFF);
+        public static Version Seasson8_Server { get; } = new Version(0x7F, 0, 8, 4, 0xFFFFFFFF, 0xFFFFFFFF);
     }
 }

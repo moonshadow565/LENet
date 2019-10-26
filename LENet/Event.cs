@@ -9,5 +9,7 @@ namespace LENet
         public byte ChannelID { get; set; }
         public uint Data { get; set; }
         public Packet Packet { get; set; }
+
+        public Event() { }
     }
 }

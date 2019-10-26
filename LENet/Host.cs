@@ -47,10 +47,10 @@ namespace LENet
             }
 
             channelCount = channelCount == 0 ? MAXIMUM_CHANNEL_COUNT : channelCount;
-            channelCount = Math.Clamp(channelCount, MINIMUM_CHANNEL_COUNT, MAXIMUM_CHANNEL_COUNT);
+            channelCount = Utils.Clamp(channelCount, MINIMUM_CHANNEL_COUNT, MAXIMUM_CHANNEL_COUNT);
 
             mtu = mtu == 0 ? DEFAULT_MTU : mtu;
-            mtu = Math.Clamp(mtu, MINIMUM_MTU, MAXIMUM_MTU);
+            mtu = Utils.Clamp(mtu, MINIMUM_MTU, MAXIMUM_MTU);
 
             Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.IP);
             if(address is Address addr)
@@ -91,7 +91,7 @@ namespace LENet
         public Peer Connect(Address address, uint channelCount = 0)
         {
             channelCount = channelCount == 0 ? ChannelLimit : channelCount;
-            channelCount = Math.Clamp(channelCount, MINIMUM_CHANNEL_COUNT, ChannelLimit);
+            channelCount = Utils.Clamp(channelCount, MINIMUM_CHANNEL_COUNT, ChannelLimit);
 
             var currentPeer = Array.Find(Peers, (p) => p.State == PeerState.DISCONNECTED);
 
@@ -119,7 +119,7 @@ namespace LENet
             {
                 currentPeer.WindowSize = (OutgoingBandwidth / Peer.WINDOW_SIZE_SCALE) * MINIMUM_WINDOW_SIZE;
             }
-            currentPeer.WindowSize = Math.Clamp(currentPeer.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
+            currentPeer.WindowSize = Utils.Clamp(currentPeer.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
             
             var command = new Protocol.Connect
             {
@@ -148,7 +148,7 @@ namespace LENet
             {
                 channelLimit = MAXIMUM_CHANNEL_COUNT;
             }
-            ChannelLimit = Math.Clamp(channelLimit, MINIMUM_CHANNEL_COUNT, MAXIMUM_CHANNEL_COUNT);
+            ChannelLimit = Utils.Clamp(channelLimit, MINIMUM_CHANNEL_COUNT, MAXIMUM_CHANNEL_COUNT);
         }
 
         public void Broadcast(byte channelID, Packet packet)

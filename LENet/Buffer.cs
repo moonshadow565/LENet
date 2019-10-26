@@ -72,17 +72,9 @@ namespace LENet
             return result;
         }
     
-        public byte[] ReadBytes(uint length)
+        public void ReadBytes(byte[] result, uint offset, uint length)
         {
-            var result = new byte[(int)length];
-            Array.Copy(Data, (int)Position, result, 0, (int)length);
-            Position += length;
-            return result;
-        }
-
-        public void ReadBytes(byte[] result, uint index, uint length)
-        {
-            Array.Copy(Data, (int)Position, result, (int)index, (int)length);
+            Array.Copy(Data, (int)Position, result, (int)offset, (int)length);
             Position += length;
         }
     }
