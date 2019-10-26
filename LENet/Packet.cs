@@ -3,7 +3,7 @@
 namespace LENet
 {
     [Flags]
-    public enum ENetPacketFlags
+    public enum PacketFlags
     {
         Reliable = (1 << 7),
         Unsequenced = (1 << 6),
@@ -11,9 +11,9 @@ namespace LENet
         None = 0,
     }
 
-    public sealed class ENetPacket
+    public sealed class Packet
     {
-        public ENetPacketFlags Flags { get; set; }
+        public PacketFlags Flags { get; set; }
         public byte[] Data { get; set; }
         public uint DataLength => (uint)Data.Length;
     }

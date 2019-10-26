@@ -1,17 +1,14 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 
 namespace LENet
 {
-    public sealed partial class ENetHost : IDisposable
+    public sealed partial class Host : IDisposable
     {
         public const uint RECEIVE_BUFFER_SIZE = 256 * 1024;
         public const uint SEND_BUFFER_SIZE = 256 * 1024;
-        // public const uint BANDWIDTH_THROTTLE_INTERVAL = 0x0FFFFFFFF;
-        public const long BANDWIDTH_THROTTLE_INTERVAL = -1;
-        public const ushort DEFAULT_MTU = 1400;
+        public const ushort DEFAULT_MTU = 996;
         public const ushort MINIMUM_MTU = 576;
         public const ushort MAXIMUM_MTU = 4096;
         public const ushort MINIMUM_WINDOW_SIZE = 4096;
@@ -20,20 +17,18 @@ namespace LENet
         public const byte MAXIMUM_CHANNEL_COUNT = 255;
         public const byte MAXIMUM_PEER_ID = 0x7F;
 
-        public ENetVersion Version { get; set; }
-        public Socket Socket { get; set; }
-        public ENetAddress Address { get; set; }
+        public Version Version { get; }
+        public Socket Socket { get; }
         public uint IncomingBandwidth { get; set; }
         public uint OutgoingBandwidth { get; set; }
         public uint BandwidthThrottleEpoch { get; set; }
         public uint MTU { get; set; }
         public bool RecalculateBandwidthLimits { get; set; }
-        public List<ENetPeer> Peers { get; set; } = new List<ENetPeer>();
-        public uint PeerCount => (uint)Peers.Count;
+        public Peer[] Peers { get; }
+        public uint PeerCount => (uint)Peers.Length;
         public uint ChannelLimit { get; set; }
         public uint ServiceTime { get; set; }
-        public ENetList<ENetPeer> DispatchQueue { get; set; } = new ENetList<ENetPeer>();
-
+        public LList<Peer> DispatchQueue { get; } = new LList<Peer>();
         public uint TotalSentData { get; set; }
         public uint TotalSentPackets { get; set; }
         public uint TotalReceivedData { get; set; }
@@ -44,53 +39,48 @@ namespace LENet
         private readonly int _timeStart = Environment.TickCount;
         public uint GetTime() => (uint)(Environment.TickCount - _timeStart); 
 
-        private ENetHost() { }
-
-        public static ENetHost Create(ENetVersion version, ENetAddress? address, uint peerCount, uint incomingBandwith, uint outgoingBandwith)
+        public Host(Version version, Address? address, uint peerCount, uint channelCount = 0, uint incomingBandwith = 0, uint outgoingBandwith = 0, ushort mtu = 0)
         {
             if(peerCount > version.MaxPeerID)
             {
-                return null;
+                throw new ArgumentOutOfRangeException("peerCount");
             }
 
-            var host = new ENetHost
-            {
-                Version = version,
-                Peers = Utils.MakeList<ENetPeer>(peerCount),
-                Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.IP),
-                ChannelLimit = MAXIMUM_CHANNEL_COUNT,
-                IncomingBandwidth = incomingBandwith,
-                OutgoingBandwidth = outgoingBandwith,
-                MTU = DEFAULT_MTU,
-            };
+            channelCount = channelCount == 0 ? MAXIMUM_CHANNEL_COUNT : channelCount;
+            channelCount = Math.Clamp(channelCount, MINIMUM_CHANNEL_COUNT, MAXIMUM_CHANNEL_COUNT);
 
-            if(address is ENetAddress addr)
+            mtu = mtu == 0 ? DEFAULT_MTU : mtu;
+            mtu = Math.Clamp(mtu, MINIMUM_MTU, MAXIMUM_MTU);
+
+            Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.IP);
+            if(address is Address addr)
             {
-                host.Address = addr;
                 try
                 {
-                    host.Socket.Bind(new IPEndPoint(addr.Host, addr.Port));
+                    Socket.Bind(new IPEndPoint(addr.Host, addr.Port));
                 }
-                catch (Exception)
+                catch (Exception error)
                 {
-                    host.Dispose();
-                    return null;
+                    Socket.Dispose();
+                    throw error;
                 }
             }
+            Socket.Blocking = false;
+            Socket.EnableBroadcast = true;
+            Socket.ReceiveBufferSize = (int)RECEIVE_BUFFER_SIZE;
+            Socket.SendBufferSize = (int)SEND_BUFFER_SIZE;
 
-            host.Socket.Blocking = false;
-            host.Socket.EnableBroadcast = true;
-            host.Socket.ReceiveBufferSize = (int)RECEIVE_BUFFER_SIZE;
-            host.Socket.SendBufferSize = (int)SEND_BUFFER_SIZE;
+            Version = version;
+            ChannelLimit = channelCount;
+            IncomingBandwidth = incomingBandwith;
+            OutgoingBandwidth = outgoingBandwith;
+            MTU = mtu;
+            Peers = new Peer[(int)peerCount];
 
             for (var i = 0; i < peerCount; i++)
             {
-                host.Peers[i].Host = host;
-                host.Peers[i].IncomingPeerID = (byte)i;
-                host.Peers[i].Reset();
+                Peers[i] = new Peer(this, (ushort)i);
             }
-
-            return host;
         }
 
         public void Dispose()
@@ -98,21 +88,28 @@ namespace LENet
             Socket.Dispose();
         }
 
-        public ENetPeer Connect(ENetAddress address, uint channelCount)
+        public Peer Connect(Address address, uint channelCount = 0)
         {
-            channelCount = Math.Clamp(channelCount, MINIMUM_CHANNEL_COUNT, MAXIMUM_CHANNEL_COUNT);
+            channelCount = channelCount == 0 ? ChannelLimit : channelCount;
+            channelCount = Math.Clamp(channelCount, MINIMUM_CHANNEL_COUNT, ChannelLimit);
 
-            var currentPeer = Peers.Find((p) => p.State == ENetPeerState.DISCONNECTED);
+            var currentPeer = Array.Find(Peers, (p) => p.State == PeerState.DISCONNECTED);
 
             if(currentPeer == null)
             {
                 return null;
             }
 
-            currentPeer.Channels = Utils.MakeList<ENetChannel>(channelCount);
-            currentPeer.State = ENetPeerState.CONNECTING;
+            currentPeer.ResetChannels();
+            currentPeer.ChannelCount = channelCount;
+            currentPeer.State = PeerState.CONNECTING;
             currentPeer.Address = address;
             currentPeer.SessionID = _nextSessionID++;
+
+            if(Version.MaxPeerID == 0x7Fu)
+            {
+                currentPeer.SessionID &= 0xFFu;
+            }
             
             if(OutgoingBandwidth == 0)
             {
@@ -120,13 +117,13 @@ namespace LENet
             } 
             else
             {
-                currentPeer.WindowSize = (OutgoingBandwidth / ENetPeer.WINDOW_SIZE_SCALE) * MINIMUM_WINDOW_SIZE;
+                currentPeer.WindowSize = (OutgoingBandwidth / Peer.WINDOW_SIZE_SCALE) * MINIMUM_WINDOW_SIZE;
             }
             currentPeer.WindowSize = Math.Clamp(currentPeer.WindowSize, MINIMUM_WINDOW_SIZE, MAXIMUM_WINDOW_SIZE);
             
-            var command = new ENetProtocol.Connect
+            var command = new Protocol.Connect
             {
-                Flags = ENetCommandFlag.ACKNOWLEDGE,
+                Flags = CommandFlag.ACKNOWLEDGE,
                 ChannelID = 0xFF,
                 OutgoingPeerID = currentPeer.IncomingPeerID,
                 MTU = currentPeer.MTU,
@@ -154,11 +151,11 @@ namespace LENet
             ChannelLimit = Math.Clamp(channelLimit, MINIMUM_CHANNEL_COUNT, MAXIMUM_CHANNEL_COUNT);
         }
 
-        public void Broadcast(byte channelID, ENetPacket packet)
+        public void Broadcast(byte channelID, Packet packet)
         {
             foreach(var currentPeer in Peers)
             {
-                if(currentPeer.State != ENetPeerState.CONNECTED)
+                if(currentPeer.State != PeerState.CONNECTED)
                 {
                     continue;
                 }
@@ -178,7 +175,7 @@ namespace LENet
             uint timeCurrent = GetTime();
             uint elapsedTime = timeCurrent - BandwidthThrottleEpoch;
 
-            if(elapsedTime < BANDWIDTH_THROTTLE_INTERVAL)
+            if(elapsedTime < Version.BandwidthThrottleInterval)
             {
                 return;
             }
@@ -187,7 +184,7 @@ namespace LENet
             uint dataTotal = 0;
             foreach (var peer in Peers)
             {
-                if(peer.State != ENetPeerState.CONNECTED && peer.State != ENetPeerState.DISCONNECT_LATER)
+                if(peer.State != PeerState.CONNECTED && peer.State != PeerState.DISCONNECT_LATER)
                 {
                     continue;
                 }
@@ -213,18 +210,18 @@ namespace LENet
 
                 if(dataTotal < bandwidth)
                 {
-                    throttle = ENetPeer.PACKET_THROTTLE_SCALE;
+                    throttle = Peer.PACKET_THROTTLE_SCALE;
                 }
                 else
                 {
-                    throttle = (bandwidth * ENetPeer.PACKET_THROTTLE_SCALE) / dataTotal;
+                    throttle = (bandwidth * Peer.PACKET_THROTTLE_SCALE) / dataTotal;
                 }
 
                 foreach (var peer in Peers)
                 {
                     uint peerBandwidth = 0;
 
-                    if ((peer.State != ENetPeerState.CONNECTED && peer.State != ENetPeerState.DISCONNECT_LATER)
+                    if ((peer.State != PeerState.CONNECTED && peer.State != PeerState.DISCONNECT_LATER)
                         || peer.IncomingBandwidth == 0
                         || peer.OutgoingBandwidthThrottleEpoch == timeCurrent)
                     {
@@ -233,12 +230,12 @@ namespace LENet
 
                     peerBandwidth = (peer.IncomingBandwidth * elapsedTime) / 1000;
 
-                    if((throttle * peer.OutgoingDataTotal) / ENetPeer.PACKET_THROTTLE_SCALE <= peerBandwidth)
+                    if((throttle * peer.OutgoingDataTotal) / Peer.PACKET_THROTTLE_SCALE <= peerBandwidth)
                     {
                         continue;
                     }
 
-                    peer.PacketThrottleLimit = (peerBandwidth * ENetPeer.PACKET_THROTTLE_SCALE) / peer.OutgoingDataTotal;
+                    peer.PacketThrottleLimit = (peerBandwidth * Peer.PACKET_THROTTLE_SCALE) / peer.OutgoingDataTotal;
 
                     if(peer.PacketThrottleLimit == 0)
                     {
@@ -263,7 +260,7 @@ namespace LENet
             {
                 foreach (var peer in Peers)
                 {
-                    if ((peer.State != ENetPeerState.CONNECTED && peer.State != ENetPeerState.DISCONNECT_LATER)
+                    if ((peer.State != PeerState.CONNECTED && peer.State != PeerState.DISCONNECT_LATER)
                         || peer.OutgoingBandwidthThrottleEpoch == timeCurrent)
                     {
                         continue;
@@ -296,7 +293,7 @@ namespace LENet
 
                         foreach (var peer in Peers)
                         {
-                            if ((peer.State != ENetPeerState.CONNECTED && peer.State != ENetPeerState.DISCONNECT_LATER) 
+                            if ((peer.State != PeerState.CONNECTED && peer.State != PeerState.DISCONNECT_LATER) 
                                 || peer.IncomingBandwidthThrottleEpoch == timeCurrent)
                             {
                                 continue;
@@ -319,14 +316,14 @@ namespace LENet
 
                 foreach (var peer in Peers)
                 {
-                    if (peer.State != ENetPeerState.CONNECTED && peer.State != ENetPeerState.DISCONNECT_LATER)
+                    if (peer.State != PeerState.CONNECTED && peer.State != PeerState.DISCONNECT_LATER)
                     {
                         continue;
                     }
 
-                    var command = new ENetProtocol.BandwidthLimit
+                    var command = new Protocol.BandwidthLimit
                     {
-                        Flags = ENetCommandFlag.ACKNOWLEDGE,
+                        Flags = CommandFlag.ACKNOWLEDGE,
                         ChannelID = 0xFF,
                         OutgoingBandwidth = OutgoingBandwidth,
                     };

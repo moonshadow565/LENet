@@ -1,11 +1,9 @@
 ﻿using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Net;
 
 namespace LENet
 {
-    public enum ENetPeerState
+    public enum PeerState
     {
         DISCONNECTED = 0,
         CONNECTING = 1,
@@ -18,7 +16,8 @@ namespace LENet
         ACKNOWLEDGING_DISCONNECT = 8,
         ZOMBIE = 9,
     }
-    public sealed class ENetPeer : ENetListNode<ENetPeer>.Element
+
+    public sealed class Peer : LList<Peer>.Element
     {
         public const ushort DEFAULT_ROUND_TRIP_TIME = 500;
         public const byte DEFAULT_PACKET_THROTTLE = 32;
@@ -28,8 +27,6 @@ namespace LENet
         public const byte PACKET_THROTTLE_DECELERATION = 2;
         public const ushort PACKET_THROTTLE_INTERVAL = 5000;
         public const uint PACKET_LOSS_SCALE = (1 << 16);
-        // FIXME: public const uint PACKET_LOSS_INTERVAL = 0x0FFFFFFFF;
-        public const long PACKET_LOSS_INTERVAL = -1;
         public const uint WINDOW_SIZE_SCALE = 64 * 1024;
         public const byte TIMEOUT_LIMIT = 32;
         public const ushort TIMEOUT_MINIMUM = 5000;
@@ -43,15 +40,15 @@ namespace LENet
         public const byte FREE_RELIABLE_WINDOWS = 8;
         public const uint FREE_RELIABLE_WINDOWS_MASK = (1u << FREE_RELIABLE_WINDOWS) - 1u;
 
-        public ENetHost Host { get; set; }
+        public Host Host { get; }
         public ushort OutgoingPeerID { get; set; }
         public ushort IncomingPeerID { get; set; }
         public uint SessionID { get; set; }
-        public ENetAddress Address { get; set; } = new ENetAddress();
+        public Address Address { get; set; }
         public object UserData { get; set; }
-        public ENetPeerState State { get; set; }
-        public List<ENetChannel> Channels { get; set; } = new List<ENetChannel>();
-        public uint ChannelCount => (uint)Channels.Count;
+        public PeerState State { get; set; }
+        public Channel[] Channels { get; }
+        public uint ChannelCount { get; set; }
         public uint IncomingBandwidth { get; set; }
         public uint OutgoingBandwidth { get; set; }
         public uint IncomingBandwidthThrottleEpoch { get; set; }
@@ -77,26 +74,36 @@ namespace LENet
         public uint LastRoundTripTime { get; set; }
         public uint LowestRoundTripTime { get; set; }
         public uint LastRoundTripTimeVariance { get; set; }
-        public uint HighestRoundTripTimeVariance { get; set; } 
+        public uint HighestRoundTripTimeVariance { get; set; }
         public uint RoundTripTime { get; set; }
         public uint RoundTripTimeVariance { get; set; }
         public ushort MTU { get; set; }
         public uint WindowSize { get; set; }
         public uint ReliableDataInTransit { get; set; }
         public ushort OutgoingReliableSequenceNumber { get; set; } 
-        public ENetList<ENetAcknowledgement> Acknowledgements { get; set; } = new ENetList<ENetAcknowledgement>();
-        public ENetList<ENetOutgoingCommand> SentReliableCommands { get; set; } = new ENetList<ENetOutgoingCommand>();
-        public ENetList<ENetOutgoingCommand> SentUnreliableCommands { get; set; } = new ENetList<ENetOutgoingCommand>();
-        public ENetList<ENetOutgoingCommand> OutgoingReliableCommands { get; set; } = new ENetList<ENetOutgoingCommand>();
-        public ENetList<ENetOutgoingCommand> OutgoingUnreliableCommands { get; set; } = new ENetList<ENetOutgoingCommand>();
-        public ENetList<ENetIncomingCommand> DispatchedCommands { get; set; } = new ENetList<ENetIncomingCommand>();
+        public LList<Acknowledgement> Acknowledgements { get; } = new LList<Acknowledgement>();
+        public LList<OutgoingCommand> SentReliableCommands { get; } = new LList<OutgoingCommand>();
+        public LList<OutgoingCommand> SentUnreliableCommands { get; } = new LList<OutgoingCommand>();
+        public LList<OutgoingCommand> OutgoingReliableCommands { get; } = new LList<OutgoingCommand>();
+        public LList<OutgoingCommand> OutgoingUnreliableCommands { get; } = new LList<OutgoingCommand>();
+        public LList<IncomingCommand> DispatchedCommands { get; } = new LList<IncomingCommand>();
         public bool NeedsDispatch { get; set; }
         public ushort IncomingUnsequencedGroup { get; set; }
         public ushort OutgoingUnsequencedGroup { get; set; }
-        public BitArray UnsequencedWindow { get; set; } = new BitArray(UNSEQUENCED_WINDOW_SIZE);
+        public BitArray UnsequencedWindow { get; } = new BitArray(UNSEQUENCED_WINDOW_SIZE);
         public uint DisconnectData { get; set; }
 
-        public ENetPeer() { }
+        public Peer(Host host, ushort id) 
+        {
+            Host = host;
+            IncomingPeerID = id;
+            Channels = new Channel[Host.ChannelLimit];
+            for(var i = 0; i < Channels.Length; i++)
+            {
+                Channels[i] = new Channel();
+            }
+            Reset();
+        }
 
         public void ThrottleConfigure(uint interval, uint acceleration, uint deceleration)
         {
@@ -104,10 +111,10 @@ namespace LENet
             PacketThrottleAcceleration = acceleration;
             PacketThrottleDeceleration = deceleration;
 
-            var command = new ENetProtocol.ThrottleConfigure
+            var command = new Protocol.ThrottleConfigure
             {
                 ChannelID = 0xFF,
-                Flags = ENetCommandFlag.ACKNOWLEDGE,
+                Flags = CommandFlag.ACKNOWLEDGE,
                 PacketThrottleInterval = interval,
                 PacketThrottleAcceleration = acceleration,
                 PacketThrottleDeceleration = deceleration,
@@ -148,16 +155,16 @@ namespace LENet
             return 0;
         }
 
-        public int Send(byte channelID, ENetPacket packet)
+        public int Send(byte channelID, Packet packet)
         {
-            if (State != ENetPeerState.CONNECTED || channelID >= ChannelCount)
+            if (State != PeerState.CONNECTED || channelID >= ChannelCount)
             {
                 return -1;
             }
 
             var channel = Channels[channelID];
 
-            uint fragmentLength = MTU - Host.Version.MaxHeaderSizeSend - ENetProtocol.Send.Fragment.SIZE;
+            uint fragmentLength = MTU - Host.Version.MaxHeaderSizeSend - Protocol.Send.Fragment.SIZE;
             
             if (packet.DataLength > fragmentLength)
             {
@@ -174,14 +181,14 @@ namespace LENet
                         fragmentLength = packet.DataLength - fragmentOffset;
                     }
 
-                    var fragment = new ENetOutgoingCommand
+                    var fragment = new OutgoingCommand
                     {
                         FragmentOffset = fragmentOffset,
                         FragmentLength = (ushort)fragmentLength,
                         Packet = packet,
-                        Command = new ENetProtocol.Send.Fragment
+                        Command = new Protocol.Send.Fragment
                         {
-                            Flags = ENetCommandFlag.ACKNOWLEDGE,
+                            Flags = CommandFlag.ACKNOWLEDGE,
                             ChannelID = channelID,
                             StartSequenceNumber = startSequenceNumber,
                             DataLength = (ushort)fragmentLength,
@@ -197,38 +204,38 @@ namespace LENet
             }
 
 
-            ENetProtocol command;
-            if (packet.Flags.HasFlag(ENetPacketFlags.Reliable))
+            Protocol command;
+            if (packet.Flags.HasFlag(PacketFlags.Reliable))
             {
-                command = new ENetProtocol.Send.Reliable
+                command = new Protocol.Send.Reliable
                 {
                     ChannelID = channelID,
-                    Flags = ENetCommandFlag.ACKNOWLEDGE,
+                    Flags = CommandFlag.ACKNOWLEDGE,
                     DataLength = (ushort)packet.DataLength,
                 };
             }
-            else if (packet.Flags.HasFlag(ENetPacketFlags.Unsequenced))
+            else if (packet.Flags.HasFlag(PacketFlags.Unsequenced))
             {
-                command = new ENetProtocol.Send.Unsequenced
+                command = new Protocol.Send.Unsequenced
                 {
                     ChannelID = channelID,
-                    Flags = ENetCommandFlag.UNSEQUENCED,
+                    Flags = CommandFlag.UNSEQUENCED,
                     UnsequencedGroup = (ushort)(OutgoingUnsequencedGroup + 1),
                     DataLength = (ushort)packet.DataLength,
                 };
             }
             else if(channel.OutgoingReliableSequenceNumber >= 0xFFFFu)
             {
-                command = new ENetProtocol.Send.Reliable
+                command = new Protocol.Send.Reliable
                 {
                     ChannelID = channelID,
-                    Flags = ENetCommandFlag.ACKNOWLEDGE,
+                    Flags = CommandFlag.ACKNOWLEDGE,
                     DataLength = (ushort)packet.DataLength,
                 };
             }
             else
             {
-                command = new ENetProtocol.Send.Unreliable
+                command = new Protocol.Send.Unreliable
                 {
                     ChannelID = channelID,
                     UnreliableSequenceNumber = (ushort)(channel.OutgoingUnreliableSequenceNumber + 1),
@@ -244,7 +251,7 @@ namespace LENet
             return 0;
         }
 
-        public ENetPacket Recieve(out byte ChannelID)
+        public Packet Recieve(out byte ChannelID)
         {
             if (DispatchedCommands.Empty)
             {
@@ -257,6 +264,21 @@ namespace LENet
             ChannelID = incomingCommand.Command.ChannelID;
             
             return incomingCommand.Packet;
+        }
+
+        public void ResetChannels()
+        {
+            if (ChannelCount > 0)
+            {
+                foreach (var channel in Channels)
+                {
+                    Array.Clear(channel.ReliableWindows, 0, channel.ReliableWindows.Length);
+                    channel.IncomingReliableCommands.Clear();
+                    channel.IncomingUnreliableCommands.Clear();
+                }
+
+                ChannelCount = 0;
+            }
         }
 
         public void ResetQueues()
@@ -274,15 +296,7 @@ namespace LENet
             OutgoingUnreliableCommands.Clear();
             DispatchedCommands.Clear();
 
-            if (ChannelCount > 0)
-            {
-                foreach (var channel in Channels)
-                {
-                    channel.IncomingReliableCommands.Clear();
-                    channel.IncomingUnreliableCommands.Clear();
-                }
-                Channels.Clear();
-            }
+            ResetChannels();
         }
 
         public void Reset()
@@ -290,7 +304,7 @@ namespace LENet
             OutgoingPeerID = Host.Version.MaxPeerID;
             SessionID = 0;
 
-            State = ENetPeerState.DISCONNECTED;
+            State = PeerState.DISCONNECTED;
 
             IncomingBandwidth = 0;
             OutgoingBandwidth = 0;
@@ -323,7 +337,7 @@ namespace LENet
             MTU = (ushort)Host.MTU;
             ReliableDataInTransit = 0;
             OutgoingReliableSequenceNumber = 0;
-            WindowSize = ENetHost.MAXIMUM_WINDOW_SIZE;
+            WindowSize = Host.MAXIMUM_WINDOW_SIZE;
             IncomingUnsequencedGroup = 0;
             OutgoingUnsequencedGroup = 0;
             DisconnectData = 0;
@@ -334,15 +348,15 @@ namespace LENet
 
         public void Ping()
         {
-            if(State != ENetPeerState.CONNECTED)
+            if(State != PeerState.CONNECTED)
             {
                 return;
             }
 
-            var command = new ENetProtocol.Ping
+            var command = new Protocol.Ping
             {
                 ChannelID = 0xFF,
-                Flags = ENetCommandFlag.ACKNOWLEDGE,
+                Flags = CommandFlag.ACKNOWLEDGE,
             };
 
             QueueOutgoingCommand(command, null, 0, 0);
@@ -350,18 +364,18 @@ namespace LENet
 
         public void DisconnectNow(uint data)
         {
-            if (State == ENetPeerState.DISCONNECTED)
+            if (State == PeerState.DISCONNECTED)
             {
                 return;
             }
 
-            if (State != ENetPeerState.ZOMBIE && State != ENetPeerState.DISCONNECTING)
+            if (State != PeerState.ZOMBIE && State != PeerState.DISCONNECTING)
             {
                 ResetQueues();
 
-                var command = new ENetProtocol.Disconnect
+                var command = new Protocol.Disconnect
                 {
-                    Flags = ENetCommandFlag.UNSEQUENCED,
+                    Flags = CommandFlag.UNSEQUENCED,
                     ChannelID = 0xFF,
                     Data = data,
                 };
@@ -375,37 +389,37 @@ namespace LENet
 
         public void Disconnect(uint data)
         {
-            if (State == ENetPeerState.DISCONNECTING
-                || State == ENetPeerState.DISCONNECTED
-                || State == ENetPeerState.ACKNOWLEDGING_DISCONNECT
-                || State == ENetPeerState.ZOMBIE)
+            if (State == PeerState.DISCONNECTING
+                || State == PeerState.DISCONNECTED
+                || State == PeerState.ACKNOWLEDGING_DISCONNECT
+                || State == PeerState.ZOMBIE)
             {
                 return;
             }
 
             ResetQueues();
             
-            var command = new ENetProtocol.Disconnect
+            var command = new Protocol.Disconnect
             {
                 ChannelID = 0xFF,
                 Data = data,
             };
 
-            if(State == ENetPeerState.CONNECTED || State == ENetPeerState.DISCONNECT_LATER)
+            if(State == PeerState.CONNECTED || State == PeerState.DISCONNECT_LATER)
             {
-                command.Flags |= ENetCommandFlag.ACKNOWLEDGE;
+                command.Flags |= CommandFlag.ACKNOWLEDGE;
             }
             else
             {
-                command.Flags |= ENetCommandFlag.UNSEQUENCED;
+                command.Flags |= CommandFlag.UNSEQUENCED;
             }
 
 
             QueueOutgoingCommand(command, null, 0, 0);
 
-            if (State == ENetPeerState.CONNECTED || State == ENetPeerState.DISCONNECT_LATER)
+            if (State == PeerState.CONNECTED || State == PeerState.DISCONNECT_LATER)
             {
-                State = ENetPeerState.DISCONNECTING;
+                State = PeerState.DISCONNECTING;
             }
             else
             {
@@ -416,12 +430,12 @@ namespace LENet
 
         public void DisconnectLater(uint data)
         {
-            if ((State == ENetPeerState.CONNECTED || State == ENetPeerState.DISCONNECT_LATER)
+            if ((State == PeerState.CONNECTED || State == PeerState.DISCONNECT_LATER)
                 && !(OutgoingReliableCommands.Empty 
                      && OutgoingUnreliableCommands.Empty 
                      && SentReliableCommands.Empty))
             {
-                State = ENetPeerState.DISCONNECT_LATER;
+                State = PeerState.DISCONNECT_LATER;
                 DisconnectData = data;
             }
             else
@@ -430,7 +444,7 @@ namespace LENet
             }
         }
 
-        public ENetAcknowledgement QueueAcknowledgement(ENetProtocol command, ushort sentTime)
+        public Acknowledgement QueueAcknowledgement(Protocol command, ushort sentTime)
         {
             if (command.ChannelID < ChannelCount)
             {
@@ -449,20 +463,20 @@ namespace LENet
                 }
             }
 
-            var acknowledgement = new ENetAcknowledgement
+            var acknowledgement = new Acknowledgement
             {
                 SentTime = sentTime,
-                command = command
+                Command = command
             };
 
-            OutgoingDataTotal += ENetProtocol.Acknowledge.SIZE;
+            OutgoingDataTotal += Protocol.Acknowledge.SIZE;
 
             Acknowledgements.End.Insert(acknowledgement.Node);
 
             return acknowledgement;
         }
 
-        public void SetupOutgoingCommand(ENetOutgoingCommand outgoingCommand)
+        public void SetupOutgoingCommand(OutgoingCommand outgoingCommand)
         {
             OutgoingDataTotal += (uint)outgoingCommand.Command.Size + outgoingCommand.FragmentLength;
             
@@ -477,7 +491,7 @@ namespace LENet
             {
                 var channel = Channels[outgoingCommand.Command.ChannelID];
                 
-                if (outgoingCommand.Command.Flags.HasFlag(ENetCommandFlag.ACKNOWLEDGE))
+                if (outgoingCommand.Command.Flags.HasFlag(CommandFlag.ACKNOWLEDGE))
                 {
                     channel.OutgoingReliableSequenceNumber++;
                     channel.OutgoingUnreliableSequenceNumber = 0;
@@ -485,7 +499,7 @@ namespace LENet
                     outgoingCommand.ReliableSequenceNumber = channel.OutgoingReliableSequenceNumber;
                     outgoingCommand.UnreliableSequenceNumber = 0;
                 }
-                else if (outgoingCommand.Command.Flags.HasFlag(ENetCommandFlag.UNSEQUENCED))
+                else if (outgoingCommand.Command.Flags.HasFlag(CommandFlag.UNSEQUENCED))
                 {
                     OutgoingUnsequencedGroup++;
                     outgoingCommand.ReliableSequenceNumber = 0;
@@ -506,7 +520,7 @@ namespace LENet
             outgoingCommand.RoundTripTimeoutLimit = 0;
             outgoingCommand.Command.ReliableSequenceNumber = outgoingCommand.ReliableSequenceNumber;
             
-            if (outgoingCommand.Command.Flags.HasFlag(ENetCommandFlag.ACKNOWLEDGE))
+            if (outgoingCommand.Command.Flags.HasFlag(CommandFlag.ACKNOWLEDGE))
             {
                 OutgoingReliableCommands.End.Insert(outgoingCommand.Node);
             }
@@ -516,9 +530,9 @@ namespace LENet
             }
         }
 
-        public ENetOutgoingCommand QueueOutgoingCommand(ENetProtocol command, ENetPacket packet, uint offset, ushort length)
+        public OutgoingCommand QueueOutgoingCommand(Protocol command, Packet packet, uint offset, ushort length)
         {
-            var outgoingCommand = new ENetOutgoingCommand
+            var outgoingCommand = new OutgoingCommand
             {
                 Command = command,
                 FragmentOffset = offset,
@@ -531,16 +545,16 @@ namespace LENet
             return outgoingCommand;
         }
 
-        public void DispatchIncomingUnreliableCommands(ENetChannel channel)
+        public void DispatchIncomingUnreliableCommands(Channel channel)
         {
-            ENetListNode<ENetIncomingCommand> currentCommand;
+            LList<IncomingCommand>.Node currentCommand;
             for (currentCommand = channel.IncomingUnreliableCommands.Begin;
                  currentCommand != channel.IncomingUnreliableCommands.End; 
                  currentCommand = currentCommand.Next)
             {
                 var incomingCommand = currentCommand.Value;
 
-                if (incomingCommand.Command is ENetProtocol.Send.Unreliable)
+                if (incomingCommand.Command is Protocol.Send.Unreliable)
                 {
                     if (incomingCommand.ReliableSequenceNumber != channel.IncomingReliableSequenceNumber)
                     {
@@ -565,9 +579,9 @@ namespace LENet
             }
         }
 
-        public void DispatchIncomingReliableCommands(ENetChannel channel)
+        public void DispatchIncomingReliableCommands(Channel channel)
         {
-            ENetListNode<ENetIncomingCommand> currentCommand;
+            LList<IncomingCommand>.Node currentCommand;
 
             for (currentCommand = channel.IncomingReliableCommands.Begin;
                  currentCommand != channel.IncomingReliableCommands.End; 
@@ -608,13 +622,13 @@ namespace LENet
             DispatchIncomingUnreliableCommands(channel);
         }
         
-        public ENetIncomingCommand QueueIncomingCommand(ENetProtocol command, ENetPacket packet, uint fragmentCount)
+        public IncomingCommand QueueIncomingCommand(Protocol command, Packet packet, uint fragmentCount)
         {
-            ENetChannel channel = command.ChannelID == 0xFF ? null : Channels[command.ChannelID];
+            Channel channel = command.ChannelID == 0xFF ? null : Channels[command.ChannelID];
 
-            var notifyError = fragmentCount > 0 ? null : new ENetIncomingCommand();
+            var notifyError = fragmentCount > 0 ? null : new IncomingCommand();
 
-            if (State == ENetPeerState.DISCONNECT_LATER)
+            if (State == PeerState.DISCONNECT_LATER)
             {
                 return notifyError;
             }
@@ -622,7 +636,7 @@ namespace LENet
             uint unreliableSequenceNumber = 0;
             uint reliableSequenceNumber = 0;
 
-            if (!(command is ENetProtocol.Send.Unsequenced))
+            if (!(command is Protocol.Send.Unsequenced))
             {
                 reliableSequenceNumber = command.ReliableSequenceNumber;
                 ushort reliableWindow = (ushort)(reliableSequenceNumber / RELIABLE_WINDOW_SIZE);
@@ -640,12 +654,12 @@ namespace LENet
             }
 
 
-            ENetListNode<ENetIncomingCommand> currentCommand;
-            ENetIncomingCommand incomingCommand;
+            LList<IncomingCommand>.Node currentCommand;
+            IncomingCommand incomingCommand;
             switch (command)
             {
-                case ENetProtocol.Send.Fragment _:
-                case ENetProtocol.Send.Reliable _: 
+                case Protocol.Send.Fragment _:
+                case Protocol.Send.Reliable _: 
                     if(reliableSequenceNumber == channel.IncomingReliableSequenceNumber)
                     {
                         return notifyError;
@@ -681,7 +695,7 @@ namespace LENet
                     }
                     break;
 
-                case ENetProtocol.Send.Unreliable sendUnreliable:
+                case Protocol.Send.Unreliable sendUnreliable:
                     unreliableSequenceNumber = sendUnreliable.UnreliableSequenceNumber;
 
                     if (reliableSequenceNumber == channel.IncomingReliableSequenceNumber
@@ -696,7 +710,7 @@ namespace LENet
                     {
                         incomingCommand = currentCommand.Value;
                         
-                        if(!(incomingCommand.Command is ENetProtocol.Send.Unreliable))
+                        if(!(incomingCommand.Command is Protocol.Send.Unreliable))
                         {
                             continue;
                         }
@@ -735,14 +749,14 @@ namespace LENet
                     }
 
                     break;
-                case ENetProtocol.Send.Unsequenced _:
+                case Protocol.Send.Unsequenced _:
                     currentCommand = channel.IncomingUnreliableCommands.End;
                     break;
                 default:
                     return notifyError;
             }
 
-            incomingCommand = new ENetIncomingCommand
+            incomingCommand = new IncomingCommand
             {
                 ReliableSequenceNumber = command.ReliableSequenceNumber,
                 UnreliableSequenceNumber = (ushort)(unreliableSequenceNumber & 0xFFFF),
@@ -757,8 +771,8 @@ namespace LENet
 
             switch (command)
             {
-                case ENetProtocol.Send.Fragment _:
-                case ENetProtocol.Send.Reliable _:
+                case Protocol.Send.Fragment _:
+                case Protocol.Send.Reliable _:
                     DispatchIncomingReliableCommands(channel);
                     break;
                 default:

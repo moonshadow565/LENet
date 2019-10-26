@@ -1,8 +1,4 @@
-﻿using System;
-using System.IO;
-using System.Linq;
-using System.Collections.Generic;
-using System.Text;
+﻿using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Net;
 
@@ -10,27 +6,37 @@ namespace LENet
 {
     internal static class Utils
     {
-        public static List<T> MakeList<T>(uint count) where T : new()
-        {
-            var result = new List<T>((int)count);
-            for(var i = 0; i < count; i++)
-            {
-                result.Add(new T());
-            }
-            return result;
+        public static bool TimeLess(uint a, uint b) 
+        { 
+            return a - b >= 86400000u;
         }
 
-        public static T[] MakeArray<T>(uint count) where T : new()
-        {
-            var result = new T[(int)count];
-            for (var i = 0; i < count; i++)
-            {
-                result[i] = new T();
-            }
-            return result;
+        public static uint TimeDiff(uint a, uint b) 
+        { 
+            return TimeLess(a, b) ? b - a : a - b; 
         }
 
-        public static int ReceiveFrom(this Socket socket, ref ENetAddress receivedAddres, ENetBuffer buffer)
+        public static int WaitReceive(this Socket socket, ref bool condition, uint timeout)
+        {
+            if(condition == false)
+            {
+                return 0;
+            }
+
+            try
+            {
+                var wait = new System.Collections.Generic.List<Socket> { socket };
+                Socket.Select(wait, null, null, (int)timeout * 1000);
+                condition = wait.Count != 0;
+                return 0;
+            }
+            catch(SocketException)
+            {
+                return -1;
+            }
+        }
+
+        public static int ReceiveFrom(this Socket socket, ref Address receivedAddres, Buffer buffer)
         {
             int receivedLength;
             var endPoint = new IPEndPoint(receivedAddres.Host, receivedAddres.Port) as EndPoint;
@@ -56,11 +62,11 @@ namespace LENet
 
             buffer.Position = 0;
             buffer.DataLength = (uint)receivedLength;
-            receivedAddres = new ENetAddress(endPoint as IPEndPoint);
+            receivedAddres = new Address(endPoint as IPEndPoint);
             return receivedLength;
         }
 
-        public static int SendTo(this Socket socket, ENetAddress address, byte[] data, uint offset, uint length)
+        public static int SendTo(this Socket socket, Address address, byte[] data, uint offset, uint length)
         {
             int sentLength;
             var endpoint = new IPEndPoint(address.Host, address.Port);

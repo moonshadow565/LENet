@@ -7,8 +7,8 @@ namespace DummyServer
     {
         public class ENet
         {
-            public ENetHost host;
-            public ENetPeer peer;
+            public Host host;
+            public Peer peer;
             public string name;
             int iteration = 0;
 
@@ -26,18 +26,18 @@ namespace DummyServer
             {
                 int result;
                 Console.Out.WriteLine($"[{name}] Step: {iteration++}");
-                var evnt = new ENetEvent();
+                var evnt = new Event();
                 result = host.HostService(evnt, (uint)timeout);
                 switch (evnt.Type)
                 {
-                    case ENetEventType.CONNECT:
+                    case EventType.CONNECT:
                         Console.WriteLine($"[{name}] Peer ({evnt.Peer.SessionID}) connected!");
                         peer = evnt.Peer;
                         break;
-                    case ENetEventType.DISCONNECT:
+                    case EventType.DISCONNECT:
                         Console.WriteLine($"[{name}] Peer ({evnt.Peer.SessionID}) diconnected!");
                         break;
-                    case ENetEventType.RECEIVE:
+                    case EventType.RECEIVE:
                         Console.WriteLine($"[{name}] Peer ({evnt.Peer.SessionID}) sent data({evnt.Packet.DataLength})");
 
                         break;
@@ -54,77 +54,37 @@ namespace DummyServer
 
         static void TestAsync()
         {
-            var address = new ENetAddress("127.0.0.1", 5005);
+            var address = new Address("127.0.0.1", 5005);
             var server = new ENet { name = "Server" };
             var client = new ENet { name = "Client" };
 
-            server.host = ENetHost.Create(new ENetVersion.Patch420(), address, 32, 0, 0);
+            server.host = new Host(LENet.Version.Seasson8_Server, address, 32, 8, 0, 0);
 
-            client.host = ENetHost.Create(new ENetVersion.Patch420(), null, 1, 0, 0);
+            client.host = new Host(LENet.Version.Seasson8_Client, null, 1, 8, 0, 0);
             client.peer = client.host.Connect(address, 8);
 
-
             client.RunLoop();
             server.RunLoop();
             client.RunLoop();
             server.RunLoop();
 
-            client.peer.Send(0, new ENetPacket
+            client.peer.Send(0, new Packet
             {
-                Flags = ENetPacketFlags.Reliable,
+                Flags = PacketFlags.Reliable,
                 Data = new byte[42]
             });
 
             client.RunLoop();
             server.RunLoop();
 
-            client.peer.Send(0, new ENetPacket
+            client.peer.Send(0, new Packet
             {
-                Flags = ENetPacketFlags.Reliable,
+                Flags = PacketFlags.Reliable,
                 Data = new byte[69]
             });
 
             client.RunOnce();
             server.RunOnce();
-        }
-
-        static void TestClient()
-        {
-            var address = new ENetAddress("127.0.0.1", 5005);
-            var client = new ENet { name = "Client" };
-            client.host = ENetHost.Create(new ENetVersion.Patch420(), null, 1, 0, 0);
-            client.host.Connect(address, 8);
-
-            for(; ; )
-            {
-                client.RunLoop(100);
-                client.peer.Send(0, new ENetPacket
-                {
-                    Flags = ENetPacketFlags.ReliableUnsequenced,
-                    Data = new byte[9001]
-                });
-            }
-        }
-
-        static void TestServer()
-        {
-            var address = new ENetAddress("127.0.0.1", 5005);
-            var server = new ENet { name = "Server" };
-            server.host = ENetHost.Create(new ENetVersion.Patch420(), address, 1, 0, 0);
-
-            for (; ; )
-            {
-                server.RunLoop(100);
-                if (server.peer != null)
-                {
-                    server.RunLoop(100);
-                    server.peer.Send(0, new ENetPacket
-                    {
-                        Flags = ENetPacketFlags.Reliable,
-                        Data = new byte[1337]
-                    });
-                }
-            }
         }
 
         static void Main(string[] args)

@@ -2,7 +2,7 @@
 
 namespace LENet
 {
-    public class ENetBuffer
+    public sealed class Buffer
     {
         public byte[] Data { get; set; }
 
@@ -12,15 +12,11 @@ namespace LENet
 
         public uint BytesLeft => DataLength - Position;
 
-
-        public ENetBuffer(byte[] data, uint length)
+        public Buffer(uint length) 
         {
-            Data = data;
+            Data = new byte[(int)length];
             DataLength = length;
         }
-        public ENetBuffer(byte[] data) : this(data, (uint)data.Length) { }
-        public ENetBuffer(uint length) : this(new byte[(int)length]) { }
-
 
         public void WriteByte(byte val)
         {
