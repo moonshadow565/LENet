@@ -70,7 +70,7 @@ namespace DummyServer
 
             client.peer.Send(0, new Packet
             {
-                Flags = PacketFlags.Reliable,
+                Flags = PacketFlags.RELIABLE,
                 Data = new byte[42]
             });
 
@@ -79,7 +79,7 @@ namespace DummyServer
 
             client.peer.Send(0, new Packet
             {
-                Flags = PacketFlags.Reliable,
+                Flags = PacketFlags.RELIABLE,
                 Data = new byte[69]
             });
 

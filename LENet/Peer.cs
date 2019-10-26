@@ -114,7 +114,7 @@ namespace LENet
             var command = new Protocol.ThrottleConfigure
             {
                 ChannelID = 0xFF,
-                Flags = CommandFlag.ACKNOWLEDGE,
+                Flags = ProtocolFlag.ACKNOWLEDGE,
                 PacketThrottleInterval = interval,
                 PacketThrottleAcceleration = acceleration,
                 PacketThrottleDeceleration = deceleration,
@@ -188,7 +188,7 @@ namespace LENet
                         Packet = packet,
                         Command = new Protocol.Send.Fragment
                         {
-                            Flags = CommandFlag.ACKNOWLEDGE,
+                            Flags = ProtocolFlag.ACKNOWLEDGE,
                             ChannelID = channelID,
                             StartSequenceNumber = startSequenceNumber,
                             DataLength = (ushort)fragmentLength,
@@ -205,21 +205,21 @@ namespace LENet
 
 
             Protocol command;
-            if (packet.Flags.HasFlag(PacketFlags.Reliable))
+            if (packet.Flags.HasFlag(PacketFlags.RELIABLE))
             {
                 command = new Protocol.Send.Reliable
                 {
                     ChannelID = channelID,
-                    Flags = CommandFlag.ACKNOWLEDGE,
+                    Flags = ProtocolFlag.ACKNOWLEDGE,
                     DataLength = (ushort)packet.DataLength,
                 };
             }
-            else if (packet.Flags.HasFlag(PacketFlags.Unsequenced))
+            else if (packet.Flags.HasFlag(PacketFlags.UNSEQUENCED))
             {
                 command = new Protocol.Send.Unsequenced
                 {
                     ChannelID = channelID,
-                    Flags = CommandFlag.UNSEQUENCED,
+                    Flags = ProtocolFlag.UNSEQUENCED,
                     UnsequencedGroup = (ushort)(OutgoingUnsequencedGroup + 1),
                     DataLength = (ushort)packet.DataLength,
                 };
@@ -229,7 +229,7 @@ namespace LENet
                 command = new Protocol.Send.Reliable
                 {
                     ChannelID = channelID,
-                    Flags = CommandFlag.ACKNOWLEDGE,
+                    Flags = ProtocolFlag.ACKNOWLEDGE,
                     DataLength = (ushort)packet.DataLength,
                 };
             }
@@ -356,7 +356,7 @@ namespace LENet
             var command = new Protocol.Ping
             {
                 ChannelID = 0xFF,
-                Flags = CommandFlag.ACKNOWLEDGE,
+                Flags = ProtocolFlag.ACKNOWLEDGE,
             };
 
             QueueOutgoingCommand(command, null, 0, 0);
@@ -375,7 +375,7 @@ namespace LENet
 
                 var command = new Protocol.Disconnect
                 {
-                    Flags = CommandFlag.UNSEQUENCED,
+                    Flags = ProtocolFlag.UNSEQUENCED,
                     ChannelID = 0xFF,
                     Data = data,
                 };
@@ -407,11 +407,11 @@ namespace LENet
 
             if(State == PeerState.CONNECTED || State == PeerState.DISCONNECT_LATER)
             {
-                command.Flags |= CommandFlag.ACKNOWLEDGE;
+                command.Flags |= ProtocolFlag.ACKNOWLEDGE;
             }
             else
             {
-                command.Flags |= CommandFlag.UNSEQUENCED;
+                command.Flags |= ProtocolFlag.UNSEQUENCED;
             }
 
 
@@ -491,7 +491,7 @@ namespace LENet
             {
                 var channel = Channels[outgoingCommand.Command.ChannelID];
                 
-                if (outgoingCommand.Command.Flags.HasFlag(CommandFlag.ACKNOWLEDGE))
+                if (outgoingCommand.Command.Flags.HasFlag(ProtocolFlag.ACKNOWLEDGE))
                 {
                     channel.OutgoingReliableSequenceNumber++;
                     channel.OutgoingUnreliableSequenceNumber = 0;
@@ -499,7 +499,7 @@ namespace LENet
                     outgoingCommand.ReliableSequenceNumber = channel.OutgoingReliableSequenceNumber;
                     outgoingCommand.UnreliableSequenceNumber = 0;
                 }
-                else if (outgoingCommand.Command.Flags.HasFlag(CommandFlag.UNSEQUENCED))
+                else if (outgoingCommand.Command.Flags.HasFlag(ProtocolFlag.UNSEQUENCED))
                 {
                     OutgoingUnsequencedGroup++;
                     outgoingCommand.ReliableSequenceNumber = 0;
@@ -520,7 +520,7 @@ namespace LENet
             outgoingCommand.RoundTripTimeoutLimit = 0;
             outgoingCommand.Command.ReliableSequenceNumber = outgoingCommand.ReliableSequenceNumber;
             
-            if (outgoingCommand.Command.Flags.HasFlag(CommandFlag.ACKNOWLEDGE))
+            if (outgoingCommand.Command.Flags.HasFlag(ProtocolFlag.ACKNOWLEDGE))
             {
                 OutgoingReliableCommands.End.Insert(outgoingCommand.Node);
             }

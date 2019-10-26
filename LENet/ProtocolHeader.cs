@@ -1,17 +1,5 @@
-﻿using System;
-
-
-namespace LENet
+﻿namespace LENet
 {
-    [Flags]
-    public enum CommandFlag : byte
-    {
-        NONE = 0,
-        ACKNOWLEDGE = (1 << 7),
-        UNSEQUENCED = (1 << 6),
-        ACKNOWLEDGE_UNSEQUENCED = ACKNOWLEDGE | UNSEQUENCED,
-    }
-
     public sealed class ProtocolHeader
     {
         public uint SessionID { get; set; } = 0;

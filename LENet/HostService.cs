@@ -282,7 +282,7 @@ namespace LENet
 
             var verifyCommand = new Protocol.VerifyConnect
             {
-                Flags = CommandFlag.ACKNOWLEDGE,
+                Flags = ProtocolFlag.ACKNOWLEDGE,
                 ChannelID = 0xFF,
                 OutgoingPeerID = currentPeer.IncomingPeerID,
                 MTU = currentPeer.MTU,
@@ -321,7 +321,7 @@ namespace LENet
             var packet = new Packet
             {
                 Data = buffer.ReadBytes(command.DataLength),
-                Flags = PacketFlags.Reliable
+                Flags = PacketFlags.RELIABLE
             };
 
             if (peer.QueueIncomingCommand(command, packet, 0) == null)
@@ -379,7 +379,7 @@ namespace LENet
             var packet = new Packet
             {
                 Data = buffer.ReadBytes(command.DataLength),
-                Flags = PacketFlags.Unsequenced
+                Flags = PacketFlags.UNSEQUENCED
             };
 
             if (peer.QueueIncomingCommand(command, packet, 0) == null)
@@ -512,7 +512,7 @@ namespace LENet
                 var packet = new Packet
                 {
                     Data = new byte[totalLength],
-                    Flags = PacketFlags.Reliable,
+                    Flags = PacketFlags.RELIABLE,
                 };
 
                 var hostCommand = command;
@@ -600,7 +600,7 @@ namespace LENet
 
                 peer.Reset();
             }
-            else if (command.Flags.HasFlag(CommandFlag.ACKNOWLEDGE))
+            else if (command.Flags.HasFlag(ProtocolFlag.ACKNOWLEDGE))
             {
                 peer.State = PeerState.ACKNOWLEDGING_DISCONNECT;
             }
@@ -837,7 +837,7 @@ namespace LENet
                     break;
                 }
 
-                if (peer != null && command.Flags.HasFlag(CommandFlag.ACKNOWLEDGE))
+                if (peer != null && command.Flags.HasFlag(ProtocolFlag.ACKNOWLEDGE))
                 {
                     if (header.TimeSent is ushort sentTime)
                     {

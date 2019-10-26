@@ -123,7 +123,7 @@ namespace LENet
             
             var command = new Protocol.Connect
             {
-                Flags = CommandFlag.ACKNOWLEDGE,
+                Flags = ProtocolFlag.ACKNOWLEDGE,
                 ChannelID = 0xFF,
                 OutgoingPeerID = currentPeer.IncomingPeerID,
                 MTU = currentPeer.MTU,
@@ -323,7 +323,7 @@ namespace LENet
 
                     var command = new Protocol.BandwidthLimit
                     {
-                        Flags = CommandFlag.ACKNOWLEDGE,
+                        Flags = ProtocolFlag.ACKNOWLEDGE,
                         ChannelID = 0xFF,
                         OutgoingBandwidth = OutgoingBandwidth,
                     };
