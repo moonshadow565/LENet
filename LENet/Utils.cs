@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Net;
 
 namespace LENet
@@ -25,9 +24,7 @@ namespace LENet
 
             try
             {
-                var wait = new System.Collections.Generic.List<Socket> { socket };
-                Socket.Select(wait, null, null, (int)timeout * 1000);
-                condition = wait.Count != 0;
+                condition = socket.Poll((int)timeout * 1000, SelectMode.SelectRead);
                 return 0;
             }
             catch(SocketException)

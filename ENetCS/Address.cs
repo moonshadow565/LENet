@@ -42,7 +42,7 @@ namespace ENet
 
         public bool Equals(Address other)
         {
-            return other.Type == Type && other.NativeData.Host == NativeData.Host && other.NativeData.Port == NativeData.Port;
+            return Type == other.Type && NativeData.Equals(other.NativeData);
         }
 
         public override bool Equals(object obj)
